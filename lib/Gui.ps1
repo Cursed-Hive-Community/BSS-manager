@@ -308,6 +308,8 @@ function Set-UiAccountColors {
 function Update-UiAccounts {
   param([switch] $Force)
   $cfg = Get-BssConfig
+  # The window writes config.json, so it records first sign-ins as it sees them.
+  [void](Update-LearnedRobloxNames $cfg)
   $rows = @(Get-AccountRows $cfg (Get-SupervisorStatus))
   Set-UiGridRows $Script:Ui.AccountsGrid $rows 'Compte' -Force:$Force
 }
@@ -397,11 +399,38 @@ function Set-UiAccountMacro {
   Update-UiAccounts -Force
 }
 
+# Returns $true when a common password is now set.
+function Set-UiCommonPassword {
+  $r = Show-UiDialog 'Mot de passe des comptes macro' @(
+    @{ Key = 'pwd'; Label = 'Mot de passe'; Kind = 'password' },
+    @{ Key = 'pwd2'; Label = 'Confirmation'; Kind = 'password' }
+  ) 'Un seul mot de passe pour tous les comptes Windows de macro, à retenir : Windows le demande parfois. Il est mémorisé dans le Gestionnaire d''identifiants pour ouvrir les sessions sans rien taper.'
+  if (-not $r) { return $false }
+  if ($r.pwd.Length -eq 0) { throw 'Mot de passe vide.' }
+  if (-not (Test-SecureEqual $r.pwd $r.pwd2)) { throw 'Les deux mots de passe ne correspondent pas.' }
+  Set-CommonPassword $r.pwd
+  return $true
+}
+
 function Reset-UiAccountPassword {
   $name = Get-UiSelectedName
   if (-not $name) { return }
-  if (-not (Confirm-Ui "Générer un nouveau mot de passe pour le compte Windows $name et le mémoriser ? Tu n'auras jamais à le taper.")) { return }
+  if (-not (Test-CommonPassword) -and -not (Set-UiCommonPassword)) { return }
+  if (-not (Confirm-Ui "Donner au compte Windows $name le mot de passe commun des comptes macro ?")) { return }
   Reset-AccountPassword (Get-BssConfig) $name
+  Update-UiAccounts -Force
+}
+
+function Set-UiAccountNames {
+  $name = Get-UiSelectedName
+  if (-not $name) { return }
+  $a = Get-AccountByName (Get-BssConfig) $name
+  $r = Show-UiDialog "Compte Roblox de $name" @(
+    @{ Key = 'roblox'; Label = 'Compte Roblox (vide = retenu à la prochaine connexion)'; Kind = 'text'; Value = $a.Roblox },
+    @{ Key = 'role'; Label = 'Rôle (facultatif)'; Kind = 'text'; Value = $a.Role }
+  ) 'Le compte Roblox est vérifié à chaque connexion : un autre compte bloque la macro. Le rôle est ton étiquette (par ex. GuidingALT2) ; une macro nommée d''après lui est acceptée.'
+  if (-not $r) { return }
+  Set-AccountRobloxNames (Get-BssConfig) $name $r.roblox $r.role
   Update-UiAccounts -Force
 }
 
@@ -437,9 +466,11 @@ function Show-UiAddRobloxWizard {
   $f.StartPosition = 'CenterParent'
   $f.Font = $Script:Ui.Form.Font
 
-  $intro = New-UiLabel ("Coche les comptes Roblox à préparer, corrige leur nom si besoin, et choisis le dossier de base. " +
-    "Pour chacun : compte Windows créé (mot de passe généré), macro propre sur $($cfg.DefaultBranch) avec les réglages du dossier de base, " +
-    "ancien dossier rangé dans $($Script:ArchiveFolderName), session ouverte, Roblox installé. Il te restera à te connecter à Roblox dans chaque session.")
+  $intro = New-UiLabel ("Coche les comptes à préparer et choisis le dossier de base. « Compte Roblox » : le nom exact s'il est connu ; " +
+    "vide pour un rôle dont tu ne connais pas le compte (il sera retenu à ta première connexion). Le compte Windows et la macro prennent " +
+    "le nom du compte Roblox, ou celui du rôle s'il est vide. Pour chacun : compte Windows (mot de passe commun), macro propre sur " +
+    "$($cfg.DefaultBranch) avec les réglages du dossier de base, ancien dossier rangé dans $($Script:ArchiveFolderName), session ouverte, " +
+    "Roblox installé. Il te restera à te connecter à Roblox dans chaque session.")
   $intro.MaximumSize = New-Object Drawing.Size(950, 0)
   $intro.Dock = 'Top'
 
@@ -451,16 +482,16 @@ function Show-UiAddRobloxWizard {
   $check = New-Object Windows.Forms.DataGridViewCheckBoxColumn
   $check.HeaderText = 'Ajouter'
   $check.FillWeight = 12
+  $roleCol = New-Object Windows.Forms.DataGridViewTextBoxColumn
+  $roleCol.HeaderText = 'Rôle / nom du dossier'
+  $roleCol.FillWeight = 30
   $robloxCol = New-Object Windows.Forms.DataGridViewTextBoxColumn
-  $robloxCol.HeaderText = 'Compte Roblox (nom exact)'
+  $robloxCol.HeaderText = 'Compte Roblox (vide = retenu)'
   $robloxCol.FillWeight = 30
-  $windowsCol = New-Object Windows.Forms.DataGridViewTextBoxColumn
-  $windowsCol.HeaderText = 'Compte Windows'
-  $windowsCol.FillWeight = 30
   $baseCol = New-Object Windows.Forms.DataGridViewComboBoxColumn
   $baseCol.HeaderText = 'Macro de base'
   $baseCol.FillWeight = 90
-  [void]$grid.Columns.AddRange([Windows.Forms.DataGridViewColumn[]]@($check, $robloxCol, $windowsCol, $baseCol))
+  [void]$grid.Columns.AddRange([Windows.Forms.DataGridViewColumn[]]@($check, $roleCol, $robloxCol, $baseCol))
 
   $paths = @{}
   $addRow = {
@@ -512,17 +543,23 @@ function Show-UiAddRobloxWizard {
     $jobs = @()
     foreach ($row in $grid.Rows) {
       if (-not [bool]$row.Cells[0].Value) { continue }
-      $roblox = ([string]$row.Cells[1].Value).Trim()
-      $windows = ([string]$row.Cells[2].Value).Trim()
-      if ($roblox -notmatch '^[A-Za-z0-9_]{3,20}$') { throw "Nom Roblox invalide : « $roblox »." }
-      if (-not $windows) { $windows = $roblox }
-      if (-not (Test-ValidAccountName $windows)) { throw "Nom de compte Windows impossible : « $windows »." }
-      $arguments = @('-Action', 'AddRoblox', '-Roblox', $roblox, '-WindowsUser', $windows)
+      $role = ([string]$row.Cells[1].Value).Trim()
+      $roblox = ([string]$row.Cells[2].Value).Trim()
+      $label = $(if ($roblox) { $roblox } else { $role })
+      foreach ($n in @($role, $roblox) | Where-Object { $_ }) {
+        if ($n -notmatch '^[A-Za-z0-9_]{3,20}$') { throw "Nom invalide : « $n » (3 à 20 lettres, chiffres ou _)." }
+      }
+      if (-not $label) { throw 'Une ligne cochée n''a ni rôle ni compte Roblox.' }
+      if (-not (Test-ValidAccountName $label)) { throw "Nom de compte Windows impossible : « $label »." }
+      $arguments = @('-Action', 'AddRoblox')
+      if ($roblox) { $arguments += @('-Roblox', $roblox) }
+      if ($role -and $role -ne $roblox) { $arguments += @('-Role', $role) }
       $base = [string]$row.Cells[3].Value
       if ($base -and $base -ne $fresh) { $arguments += @('-Path', $paths[$base]) }
-      $jobs += @{ Label = "Préparation de $roblox"; Arguments = $arguments }
+      $jobs += @{ Label = "Préparation de $label"; Arguments = $arguments }
     }
     if (-not $jobs.Count) { return }
+    if (-not (Test-CommonPassword) -and -not (Set-UiCommonPassword)) { return }
     if (-not (Confirm-Ui "Préparer $($jobs.Count) compte(s) Roblox, l'un après l'autre ? Compte quelques minutes par compte (création, copie, session, installation de Roblox).")) { return }
     foreach ($job in $jobs) { Start-UiAction $job.Label $job.Arguments }
   } finally { $f.Dispose() }
@@ -618,7 +655,8 @@ function New-UiAccountsTab {
     (New-UiButton 'Pause / reprendre' { Switch-UiAccountFlag 'Paused' }),
     (New-UiButton 'Inclure / exclure' { Switch-UiAccountFlag 'Enabled' }),
     (New-UiButton 'Changer la macro...' { Set-UiAccountMacro }),
-    (New-UiButton 'Nouveau mot de passe' { Reset-UiAccountPassword }),
+    (New-UiButton 'Compte Roblox / rôle...' { Set-UiAccountNames }),
+    (New-UiButton 'Mot de passe commun' { Reset-UiAccountPassword }),
     (New-UiButton 'Retirer...' { Remove-UiAccount })
   ) 'Bottom'
   $tab.Controls.Add($Script:Ui.AccountsGrid)
@@ -715,6 +753,9 @@ function New-UiSettingsTab {
         (New-UiButton 'Installer / réparer (superviseur, raccourcis, droits)' { if (Confirm-Ui 'Installer ou réparer BSS Manager ? Le dossier redevient modifiable par les administrateurs seulement.') { Start-UiAction 'Installation' @('-Action', 'Install') } }),
         (New-UiButton 'Désinstaller...' { if (Confirm-Ui 'Supprimer les tâches et raccourcis de BSS Manager ? Les comptes et les fichiers restent.') { Start-UiAction 'Désinstallation' @('-Action', 'Uninstall') } }))),
       (New-UiGroup 'Paramètres' @($grid)),
+      (New-UiGroup 'Mot de passe des comptes macro' @(
+        (New-UiButton 'Définir le mot de passe commun...' { [void](Set-UiCommonPassword) }),
+        (New-UiButton 'Appliquer à tous les comptes' { if (-not (Test-CommonPassword)) { Show-UiInfo 'Définis d''abord le mot de passe commun.'; return }; if (Confirm-Ui 'Donner le mot de passe commun à tous les comptes Windows de macro ?') { Set-CommonPasswordOnAll (Get-BssConfig); Update-UiAccounts -Force } }))),
       (New-UiGroup 'Connexion automatique de Windows (après un crash)' @(
         (New-UiButton 'Activer...' { Enable-UiAutoLogon }),
         (New-UiButton 'Désactiver' { if (Confirm-Ui 'Désactiver la connexion automatique et effacer le mot de passe stocké ?') { Disable-AutoLogon; Update-UiHeader -Force } }))),

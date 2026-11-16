@@ -56,14 +56,24 @@ function Add-RobloxAccountMenu {
   $i = Select-Index $labels 'Compte Roblox'
   if ($i -lt 0) { return }
   $candidates = @()
-  if ($i -lt $suggestions.Count) { $roblox = $suggestions[$i].Roblox; $candidates = $suggestions[$i].Candidates }
-  else { $roblox = (Read-Host 'Nom exact du compte Roblox').Trim() }
-  $windows = (Read-Host "Compte Windows (Entrée = $roblox)").Trim()
-  if (-not $windows) { $windows = $roblox }
+  $guess = ''
+  if ($i -lt $suggestions.Count) { $guess = $suggestions[$i].Roblox; $candidates = $suggestions[$i].Candidates }
+  $roblox = (Read-Host "Compte Roblox exact (Entrée = $(if ($guess) { $guess } else { 'inconnu, retenu à la 1re connexion' }), « - » = inconnu)").Trim()
+  if (-not $roblox) { $roblox = $guess }
+  if ($roblox -eq '-') { $roblox = '' }
+  $role = ''
+  if (-not $roblox -or ($guess -and $roblox -ne $guess)) {
+    $role = (Read-Host "Rôle (Entrée = $guess)").Trim()
+    if (-not $role) { $role = $guess }
+  }
+  if (-not (Test-CommonPassword)) {
+    Write-Host 'Choisis le mot de passe commun des comptes macro (Windows le demande parfois).' -ForegroundColor Cyan
+    Set-CommonPassword (Read-NewPassword 'les comptes macro')
+  }
   $j = Select-Index (@($candidates | ForEach-Object { Format-MacroLabel $_ }) + @('Aucune base : réglages neufs')) 'Macro de base'
   if ($j -lt 0) { return }
   $source = $(if ($j -lt $candidates.Count) { $candidates[$j].Path } else { '' })
-  Add-RobloxAccount $Cfg $roblox $windows $source
+  Add-RobloxAccount $Cfg $roblox $role '' $source
 }
 
 function Switch-AccountFlagMenu {
@@ -76,7 +86,7 @@ function Set-AccountPasswordMenu {
   param($Cfg)
   $a = Select-OneAccount $Cfg
   if (-not $a) { return }
-  $i = Select-Index @('Générer un nouveau mot de passe et le mémoriser', 'Enregistrer le mot de passe actuel (ne change rien dans Windows)') 'Choix'
+  $i = Select-Index @('Appliquer le mot de passe commun des comptes macro', 'Enregistrer le mot de passe actuel (ne change rien dans Windows)') 'Choix'
   if ($i -eq 0) { Reset-AccountPassword $Cfg $a.Name }
   elseif ($i -eq 1) { Set-AccountPasswordValue $Cfg $a.Name (Read-Host "Mot de passe Windows actuel de $($a.Name)" -AsSecureString) $false }
 }

@@ -127,7 +127,7 @@ function Invoke-SupervisorPass {
     if ($running -and ($restartRequests -contains $account.Name) -and (Get-SecondsSince $m.LastNatroStart) -ge $grace) {
       Write-Log "Superviseur : $($account.Name) - redémarrage demandé par la boîte de réception." WARN
       Stop-NatroProcesses $account.MacroPath
-      Start-Natro $account
+      [void](Start-Natro $Cfg $account)
       $m.LastNatroStart = Get-Date
       $m.LastAction = 'macro redémarrée (demande)'; $m.LastActionAt = Get-Date
       $entry.State = 'redémarrage'
@@ -141,7 +141,7 @@ function Invoke-SupervisorPass {
         (Get-SecondsSince $m.LastNatroStart) -ge $grace -and
         (Get-SecondsSince $m.LastSessionLaunch) -ge $grace) {
       Write-Log "Superviseur : $($account.Name) - Natro ne tourne plus, relance." WARN
-      Start-Natro $account
+      [void](Start-Natro $Cfg $account)
       $m.LastNatroStart = Get-Date
       $m.LastAction = 'macro relancée'; $m.LastActionAt = Get-Date
     }

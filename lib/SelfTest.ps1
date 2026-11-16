@@ -133,11 +133,31 @@ function Invoke-SelfTest {
       @($cases.Keys | Where-Object { (Get-RobloxNameGuess $_) -ne $cases[$_] }).Count -eq 0
     }
 
-    Add-Check 'Generated password: 28 characters, every class' {
-      $p = New-RandomPassword
-      $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($p)
-      try { $t = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }
-      $t.Length -eq 28 -and $t -cmatch '[A-Z]' -and $t -cmatch '[a-z]' -and $t -match '\d' -and $t -match '[!#%+=?@]'
+    Add-Check 'A stored password reads back identical, as a SecureString' {
+      $target = 'BSS-Manager/selftest/' + [Guid]::NewGuid().ToString('N')
+      $secret = New-Object Security.SecureString
+      foreach ($c in 'Ab3!éç'.ToCharArray()) { $secret.AppendChar($c) }
+      [BssNative]::WriteCred($target, 'selftest', $secret)
+      try { $back = [BssNative]::ReadCredSecure($target) } finally { [BssNative]::DeleteCred($target) }
+      ($back -is [Security.SecureString]) -and (Test-SecureEqual $secret $back) -and ($null -eq [BssNative]::ReadCredSecure($target))
+    }
+
+    Add-Check 'Roblox sign-in rule: first account learnt, another refused' {
+      ((Get-RobloxSignInProblem '' 'PlayerAlt2' $true) -eq '') -and
+        ((Get-RobloxSignInProblem 'PlayerAlt2' 'PlayerAlt2' $true) -eq '') -and
+        ((Get-RobloxSignInProblem 'PlayerAlt2' 'PLAYERALT2' $true) -eq '') -and
+        ((Get-RobloxSignInProblem 'PlayerAlt2' 'PlayerAlt4' $true) -like 'mauvais compte*') -and
+        ((Get-RobloxSignInProblem '' '' $false) -eq 'Roblox pas installé dans la session') -and
+        ((Get-RobloxSignInProblem '' '' $true) -eq 'connecte-toi à Roblox dans la session')
+    }
+
+    Add-Check 'A macro named after the role is accepted (GuidingALT2 played by PlayerAlt2)' {
+      $ok = [pscustomobject]@{ Name = 'NoSuchUser1'; Roblox = 'PlayerAlt2'; Role = 'GuidingALT2'; MacroPath = 'G:\x\Natro_Macro_GuidingALT2' }
+      $bad = [pscustomobject]@{ Name = 'NoSuchUser1'; Roblox = 'PlayerAlt2'; Role = ''; MacroPath = 'G:\x\Natro_Macro_GuidingALT2' }
+      # Readiness stops at the missing Windows account first, so the macro
+      # rule is checked through the names it accepts.
+      $accepts = { param($a) $o = Get-RobloxNameGuess (Split-Path $a.MacroPath -Leaf); @($a.Roblox, $a.Role, $a.Name) -contains $o }
+      (& $accepts $ok) -and -not (& $accepts $bad)
     }
 
     Add-Check 'Account names: Roblox names allowed, PC and own name refused' {

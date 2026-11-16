@@ -71,6 +71,7 @@ Command line, from an administrator PowerShell:
 .\BSS-Manager.ps1 -Action UpdateMacros             # update and restart
 .\BSS-Manager.ps1 -Action SetBranch -Path <dir> -Branch main
 .\BSS-Manager.ps1 -Action AddRoblox -Roblox <name> -Path <base folder>
+.\BSS-Manager.ps1 -Action AddRoblox -Role <role>   # Roblox account learnt
 .\BSS-Manager.ps1 -Action Update -Force            # re-fetch rdpwrap.ini
 .\BSS-Manager.ps1 -Action Status                   # no admin needed
 .\BSS-Manager.ps1 -Action SelfTest                 # no admin needed
@@ -78,13 +79,22 @@ Command line, from an administrator PowerShell:
 
 # Roblox accounts
 
-One Roblox account has its own Windows account (named after it by
-default), its own macro folder `Natro_Macro_<account>` and its own session.
-Adding one runs every step, each skipped when already done, so
+One Roblox account has its own Windows account, its own macro folder
+`Natro_Macro_<name>` and its own session. The name is the Roblox account's
+when it is known. Some macros are named after a role instead (GuidingALT2
+is played by PlayerAlt2): leave the Roblox account empty and the role gives
+the name; the Roblox account is then learnt at the first sign-in, and any
+other account signing in later is refused. A role is also shown in its own
+column, and a macro folder named after it is accepted.
+
+Every macro account shares one password chosen by the owner (*Réglages*,
+*Mot de passe des comptes macro*), since Windows sometimes asks for it. It
+is kept in Credential Manager, like each session's copy.
+
+Adding an account runs every step, each skipped when already done, so
 *Reprendre la préparation* resumes an interrupted one:
 
-1. Windows account created, with a random 28-character password kept in
-   Credential Manager; nobody has to type it.
+1. Windows account created with the common password.
 2. Macro: a Cursed folder is used as is; otherwise a clean one is cloned
    from a Cursed instance with the fork's `nm-new-instance.ps1`, the base
    folder's `settings` are copied in, it is updated to `DefaultBranch`, and
@@ -96,8 +106,11 @@ Adding one runs every step, each skipped when already done, so
 
 The Roblox account signed in is read from
 `%LOCALAPPDATA%\Roblox\LocalStorage\appStorage.json` in each profile. An
-account only runs when that name, the account's Roblox name and the name in
-its macro folder all agree; otherwise *État* says which one differs.
+account only runs when the signed-in account matches its Roblox account
+(or is the first one, while none is recorded) and its macro folder is named
+after its Roblox account, role or Windows account; otherwise *État* says
+what differs. Profiles created by BSS Manager are private, so this is only
+visible with administrator rights (the window has them).
 
 # After a crash
 
@@ -160,9 +173,10 @@ any other action, an unknown account or a file over 4 KB.
 - The folder is writable by administrators only, since tasks run it with
   administrator rights. A write right added by hand for development is
   removed by the next *Installer / réparer*.
-- Account passwords live in Credential Manager; the auto-logon password is an
-  LSA secret, as Sysinternals Autologon stores it[^autologon]. Neither is
-  written to a file or a log.
+- The common macro-account password and each session's copy live in
+  Credential Manager; the auto-logon password is an LSA secret, as
+  Sysinternals Autologon stores it[^autologon]. None is written to a file or
+  a log.
 - Updates run the fork's scripts with administrator rights: trust the
   repository a macro follows.
 

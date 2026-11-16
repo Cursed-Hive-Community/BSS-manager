@@ -166,7 +166,9 @@ function Get-RobloxSignedIn {
   $profilePath = Get-UserProfilePath $WindowsUser
   if (-not $profilePath) { return $null }
   $file = Join-Path $profilePath 'AppData\Local\Roblox\LocalStorage\appStorage.json'
-  if (-not (Test-Path $file)) { return $null }
+  # A fresh profile is private: without administrator rights the file
+  # cannot even be tested, which must read as "unknown", not stop the caller.
+  if (-not (Test-Path $file -ErrorAction SilentlyContinue)) { return $null }
   try {
     $j = [IO.File]::ReadAllText($file) | ConvertFrom-Json
     if ([long]$j.UserId -gt 0 -and $j.Username) { return [string]$j.Username }
@@ -180,7 +182,11 @@ function Test-RobloxInstalled {
   param([string] $WindowsUser)
   $profilePath = Get-UserProfilePath $WindowsUser
   if (-not $profilePath) { return $false }
-  return [bool](Get-ChildItem (Join-Path $profilePath 'AppData\Local\Roblox\Versions') -Filter 'RobloxPlayerBeta.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)
+  # Get-ChildItem throws on a private profile despite SilentlyContinue when
+  # the caller runs with ErrorActionPreference Stop: unreadable is "unknown".
+  try {
+    return [bool](Get-ChildItem (Join-Path $profilePath 'AppData\Local\Roblox\Versions') -Filter 'RobloxPlayerBeta.exe' -Recurse -ErrorAction Stop | Select-Object -First 1)
+  } catch { return $false }
 }
 
 # What an account still lacks to run unattended; empty when ready. Read live
@@ -191,35 +197,76 @@ function Get-AccountReadiness {
   if (-not (Get-LocalUser -Name $Account.Name -ErrorAction SilentlyContinue)) { return 'compte Windows introuvable' }
   if (-not [BssNative]::CredExists((Get-CredTarget $Account))) { return 'mot de passe non enregistré' }
   if (-not $Account.MacroPath) { return 'aucune macro associée' }
-  if (-not $Account.Roblox) { return 'compte Roblox non renseigné' }
   # A macro folder named after another account holds that account's settings
-  # (fields, private server, webhook): never run it for this one.
+  # (fields, private server, webhook): never run it for this one. The owner
+  # names folders after the Roblox account or after a role (GuidingALT2 is
+  # played by PlayerAlt2), so any of the account's names is accepted.
   $macroOwner = Get-RobloxNameGuess (Split-Path $Account.MacroPath -Leaf)
-  if ($macroOwner -and $macroOwner -ne $Account.Roblox) { return "la macro est celle de $macroOwner, pas de $($Account.Roblox)" }
+  $names = @($Account.Roblox, $Account.Role, $Account.Name) | Where-Object { $_ }
+  if ($macroOwner -and $names -notcontains $macroOwner) { return "la macro est celle de $macroOwner, pas de $($names[0])" }
   $signedIn = Get-RobloxSignedIn $Account.Name
-  if (-not $signedIn) {
-    if (-not (Test-RobloxInstalled $Account.Name)) { return 'Roblox pas installé dans la session' }
-    return "connecte-toi à Roblox avec $($Account.Roblox) dans la session"
+  $installed = $true
+  if (-not $signedIn) { $installed = Test-RobloxInstalled $Account.Name }
+  return (Get-RobloxSignInProblem $Account.Roblox $signedIn $installed)
+}
+
+# The sign-in rule on its own, testable without a session. An empty
+# expected name accepts whoever signs in first; Update-LearnedRobloxNames
+# then records it and any later different account is refused.
+function Get-RobloxSignInProblem {
+  param([string] $Expected, [string] $SignedIn, [bool] $Installed)
+  if (-not $SignedIn) {
+    if (-not $Installed) { return 'Roblox pas installé dans la session' }
+    if ($Expected) { return "connecte-toi à Roblox avec $Expected dans la session" }
+    return 'connecte-toi à Roblox dans la session'
   }
-  if ($signedIn -ne $Account.Roblox) { return "mauvais compte Roblox ($signedIn au lieu de $($Account.Roblox))" }
+  if ($Expected -and $SignedIn -ne $Expected) { return "mauvais compte Roblox ($SignedIn au lieu de $Expected)" }
   return ''
 }
 
-# A long random password, built straight into a SecureString, with every
-# character class so Windows complexity rules always accept it.
-# https://learn.microsoft.com/dotnet/api/system.security.cryptography.randomnumbergenerator
-function New-RandomPassword {
-  $classes = @('ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!#%+=?@')
-  $all = -join $classes
-  $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-  $bytes = New-Object byte[] 28
-  $rng.GetBytes($bytes)
-  $secure = New-Object Security.SecureString
-  for ($i = 0; $i -lt 24; $i++) { $secure.AppendChar($all[$bytes[$i] % $all.Length]) }
-  for ($i = 0; $i -lt 4; $i++) { $secure.AppendChar($classes[$i][$bytes[24 + $i] % $classes[$i].Length]) }
-  $rng.Dispose()
-  $secure.MakeReadOnly()
-  return $secure
+# Records the Roblox account of every account that had none, from what is
+# signed in. Only config writers (window, command line) call it; the
+# supervisor reads, and the rule above already accepts the first sign-in.
+function Update-LearnedRobloxNames {
+  param($Cfg)
+  $changed = $false
+  foreach ($a in @($Cfg.Accounts | Where-Object { -not $_.Roblox })) {
+    $signedIn = Get-RobloxSignedIn $a.Name
+    if ($signedIn) {
+      $a.Roblox = $signedIn
+      $changed = $true
+      Write-Log "$($a.Name) : compte Roblox retenu, $signedIn." OK
+    }
+  }
+  if ($changed) { Save-BssConfig $Cfg }
+  return $changed
+}
+
+# One password, chosen by the owner, for every macro account: Windows
+# sometimes asks for it, so it must be one they know. Kept in Credential
+# Manager like the per-session copies, never in a file.
+$Script:CommonPasswordTarget = 'BSS-Manager/MacroAccounts'
+
+function Get-CommonPassword { return [BssNative]::ReadCredSecure($Script:CommonPasswordTarget) }
+
+function Test-CommonPassword { return [BssNative]::CredExists($Script:CommonPasswordTarget) }
+
+function Set-CommonPassword {
+  param([Security.SecureString] $Password)
+  if (-not $Password -or $Password.Length -eq 0) { throw 'Mot de passe vide.' }
+  [BssNative]::WriteCred($Script:CommonPasswordTarget, 'BSS Manager', $Password)
+  Write-Log 'Mot de passe commun des comptes macro enregistré.' OK
+}
+
+# Gives one Windows account the common password, in Windows and in its
+# saved session credential.
+function Set-AccountCommonPassword {
+  param($Account)
+  $password = Get-CommonPassword
+  if (-not $password) { throw 'Aucun mot de passe commun : définis-le d''abord (onglet Réglages).' }
+  Set-LocalUser -Name $Account.Name -Password $password
+  Set-AccountCredential $Account $password
+  Write-Log "$($Account.Name) : mot de passe commun appliqué." OK
 }
 
 # Windows caps a local account description at 48 characters; with a

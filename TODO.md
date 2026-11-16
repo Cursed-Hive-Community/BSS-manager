@@ -33,6 +33,11 @@ What is proven, by which kind of evidence, and what is not.
       folder names, with their base folders
 - [x] the signed-in Roblox account is read (Roblox2: PlayerAlt4), and
       Roblox2 holding GuidingALT1's macro is reported as not ready
+- [x] `AddRoblox` end to end in real use (GuidingALT2, then PlayerAlt2):
+      account, clean macro from `nm-new-instance.ps1`, old settings, move to
+      `_Anciennes`, first sign-in, certificate approval, signed Roblox
+      installer through the one-shot task, Roblox sign-in detected, Natro
+      started (12:24-12:26)
 
 # Loads, never driven
 
@@ -40,11 +45,8 @@ Parsed and loaded, but nobody has run these yet:
 
 - [ ] window buttons and dialogs, clicked by a person (only the rendering
       is proven)
-- [ ] `AddRoblox` end to end: account creation, `nm-new-instance.ps1`,
-      settings copy, move to `_Anciennes`, first sign-in wait, Roblox
-      install through the one-shot task, signature check
-- [ ] Roblox's `appStorage.json` updates once the owner signs in through
-      the freshly installed app
+- [ ] `AddRoblox` with the common password and with a role only (Roblox
+      account learnt at the first sign-in)
 - [ ] supervisor registers the Natro task and starts Natro once the Roblox
       sign-in is detected
 - [ ] 1920x1080 sessions on this PC's screen (window larger than the

@@ -18,7 +18,8 @@
   BSS-Manager.ps1 -Action UpdateMacros             # update the accounts' macros
   BSS-Manager.ps1 -Action UpdateMacros -Path <dir> # update one macro folder
   BSS-Manager.ps1 -Action SetBranch -Path <dir> -Branch main
-  BSS-Manager.ps1 -Action AddRoblox -Roblox PlayerAlt4 [-WindowsUser x] [-Path <base macro>]
+  BSS-Manager.ps1 -Action AddRoblox -Roblox PlayerAlt4 [-Role x] [-WindowsUser x] [-Path <base macro>]
+  BSS-Manager.ps1 -Action AddRoblox -Role GuidingALT1  # Roblox account learnt at first sign-in
   BSS-Manager.ps1 -Action SelfTest                 # checks, no admin needed
 
 .LINK
@@ -32,6 +33,7 @@ param(
   [string] $Path,
   [string] $Branch,
   [string] $Roblox,
+  [string] $Role,
   [string] $WindowsUser,
   [switch] $Unattended,
   [switch] $Force,
@@ -58,6 +60,7 @@ if (-not $readOnly -and -not (Test-Admin)) {
   if ($Path) { $arguments += @('-Path', ('"{0}"' -f $Path)) }
   if ($Branch) { $arguments += @('-Branch', $Branch) }
   if ($Roblox) { $arguments += @('-Roblox', $Roblox) }
+  if ($Role) { $arguments += @('-Role', $Role) }
   if ($WindowsUser) { $arguments += @('-WindowsUser', $WindowsUser) }
   if ($Unattended) { $arguments += '-Unattended' }
   if ($Force) { $arguments += '-Force' }
@@ -84,7 +87,7 @@ try {
     'Update'       { if (-not (Update-RdpWrapper $cfg)) { exit 2 } }
     'UpdateMacros' { if ($Path) { Update-Macros $cfg -Paths @($Path) } else { Update-Macros $cfg $Account } }
     'SetBranch'    { if (-not ($Path -and $Branch)) { throw '-Path et -Branch sont obligatoires.' }; Set-MacroBranch $cfg $Path $Branch }
-    'AddRoblox'    { if (-not $Roblox) { throw '-Roblox est obligatoire.' }; Add-RobloxAccount $cfg $Roblox $WindowsUser $Path }
+    'AddRoblox'    { if (-not ($Roblox -or $Role)) { throw '-Roblox ou -Role est obligatoire.' }; Add-RobloxAccount $cfg $Roblox $Role $WindowsUser $Path }
     'Supervise'    { Invoke-Supervisor }
     'Install'      { Install-Manager $cfg }
     'Uninstall'    { Uninstall-Manager }

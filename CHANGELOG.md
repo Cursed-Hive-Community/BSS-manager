@@ -22,6 +22,12 @@ Versioning[^semver].
 - Signed-in Roblox account read from `appStorage.json`; an account whose
   Roblox name, signed-in name and macro folder disagree does not run.
 
+- Roles: an account may have a role (GuidingALT2) besides its Roblox
+  account (PlayerAlt2); a macro named after the role is accepted, and an
+  unknown Roblox account is learnt at the first sign-in.
+- One common password, chosen by the owner, for every macro account, with
+  buttons to set it and apply it to existing accounts.
+
 ## Changed
 
 - The text menu moved to `-Action Menu`.
@@ -32,6 +38,8 @@ Versioning[^semver].
 
 - Creating or adding a bare Windows account, replaced by adding a Roblox
   account.
+- Random generated passwords: the owner needs to know the password, as
+  Windows sometimes asks for it.
 
 ## Fixed
 

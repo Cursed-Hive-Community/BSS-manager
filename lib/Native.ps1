@@ -9,6 +9,8 @@
 # Secrets only ever travel as SecureString and are copied to unmanaged memory
 # that is zeroed straight after use, never as a managed string.
 
+# A process compiles this once: a window opened before an update keeps the
+# old type until it is closed and reopened.
 if (-not ('BssNative' -as [type])) {
   Add-Type -TypeDefinition @'
 using System;
@@ -99,6 +101,20 @@ public static class BssNative {
       c.CredentialBlob = secret;
       if (!CredWrite(ref c, 0)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
     } finally { Marshal.ZeroFreeGlobalAllocUnicode(secret); }
+  }
+
+  // Reads a generic credential's secret straight into a SecureString,
+  // character by character, never as a managed string. Null when absent.
+  public static SecureString ReadCredSecure(string target) {
+    IntPtr p;
+    if (!CredRead(target, CRED_TYPE_GENERIC, 0, out p)) return null;
+    try {
+      CREDENTIAL c = (CREDENTIAL)Marshal.PtrToStructure(p, typeof(CREDENTIAL));
+      SecureString s = new SecureString();
+      for (int i = 0; i < c.CredentialBlobSize / 2; i++) s.AppendChar((char)Marshal.ReadInt16(c.CredentialBlob, i * 2));
+      s.MakeReadOnly();
+      return s;
+    } finally { CredFree(p); }
   }
 
   // mstsc's own "remember me" box stores a domain credential, ours a generic

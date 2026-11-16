@@ -148,6 +148,7 @@ function Get-BssConfig {
       if (-not ($a.PSObject.Properties.Name -contains 'Roblox')) {
         $a | Add-Member -NotePropertyName Roblox -NotePropertyValue ([string](Get-RobloxSignedIn $a.Name))
       }
+      if (-not ($a.PSObject.Properties.Name -contains 'Role')) { $a | Add-Member -NotePropertyName Role -NotePropertyValue '' }
     }
     return $cfg
   }
@@ -167,13 +168,16 @@ function Save-BssConfig {
   Write-FileAtomic $Script:Bss.ConfigPath ($Cfg | ConvertTo-Json -Depth 5)
 }
 
-# Name is the Windows account; Roblox the Roblox account it plays.
+# Name is the Windows account; Roblox the Roblox account it plays (empty
+# until learnt at the first sign-in); Role the owner's label for it, when
+# it has one (GuidingALT2 for PlayerAlt2).
 function New-AccountEntry {
-  param($Cfg, [string] $Name, [string] $Roblox)
+  param($Cfg, [string] $Name, [string] $Roblox, [string] $Role)
   if (-not $Roblox) { $Roblox = [string](Get-RobloxSignedIn $Name) }
   [pscustomobject]@{
     Name      = $Name
     Roblox    = $Roblox
+    Role      = $Role
     Enabled   = $true
     Paused    = $false
     Ip        = (Get-NextLoopbackIp $Cfg)

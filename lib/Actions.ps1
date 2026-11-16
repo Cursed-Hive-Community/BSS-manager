@@ -26,6 +26,7 @@ function Start-All {
 
   foreach ($a in $accounts) { $a.Paused = $false }
   Save-BssConfig $Cfg
+  [void](Update-LearnedRobloxNames $Cfg)
   foreach ($a in $accounts) { Sync-NatroTask $Cfg $a }
 
   $sessions = Get-BssSessions
@@ -38,7 +39,7 @@ function Start-All {
     if (Test-SessionConnected $session) {
       if ($a.MacroPath -and -not (Test-NatroRunning $a $session.Id)) {
         Write-Log "$($a.Name) : session déjà ouverte, démarrage de Natro."
-        Start-Natro $a
+        [void](Start-Natro $Cfg $a)
       } else {
         Write-Log "$($a.Name) : déjà en route."
       }
@@ -75,8 +76,7 @@ function Restart-AccountMacro {
     $session = Get-AccountSession $a
     Stop-NatroProcesses $a.MacroPath
     if (Test-SessionConnected $session) {
-      Start-Natro $a
-      Write-Log "$($a.Name) : macro redémarrée." OK
+      if (Start-Natro $Cfg $a) { Write-Log "$($a.Name) : macro redémarrée." OK }
     } else {
       if (Open-AccountSession $Cfg $a) { Write-Log "$($a.Name) : session rouverte, la macro démarre avec elle." OK }
     }
@@ -151,12 +151,21 @@ function Install-RobloxInSession {
 
 # Every step needed for one Roblox account, each skipped when already done,
 # so running it again resumes where it stopped.
+# Names follow the Roblox account when it is known, else the role (the
+# owner may not know which Roblox account plays GuidingALT1: it is then
+# learnt at the first sign-in).
 function Add-RobloxAccount {
-  param($Cfg, [string] $Roblox, [string] $WindowsUser, [string] $SourcePath)
-  if (-not $WindowsUser) { $WindowsUser = $Roblox }
-  if ($Roblox -notmatch '^[A-Za-z0-9_]{3,20}$') { throw "Nom Roblox invalide : $Roblox" }
+  param($Cfg, [string] $Roblox, [string] $Role, [string] $WindowsUser, [string] $SourcePath)
+  $label = $(if ($Roblox) { $Roblox } else { $Role })
+  if (-not $label) { throw 'Il faut un compte Roblox ou un rôle.' }
+  foreach ($n in @($Roblox, $Role) | Where-Object { $_ }) {
+    if ($n -notmatch '^[A-Za-z0-9_]{3,20}$') { throw "Nom invalide : $n (3 à 20 lettres, chiffres ou _)." }
+  }
+  if (-not $WindowsUser) { $WindowsUser = $label }
   if (-not (Test-ValidAccountName $WindowsUser)) { throw "Nom de compte Windows impossible : $WindowsUser (3 à 20 lettres, chiffres ou _, différent du nom du PC et du tien)." }
-  Write-Log "=== $Roblox : préparation (compte Windows $WindowsUser) ==="
+  $password = Get-CommonPassword
+  if (-not $password) { throw 'Aucun mot de passe commun pour les comptes macro : définis-le d''abord (onglet Réglages).' }
+  Write-Log "=== $label : préparation (compte Windows $WindowsUser$(if ($Roblox) { ", Roblox $Roblox" } else { ', compte Roblox retenu à la première connexion' })) ==="
 
   if (-not (Get-WrapperState $Cfg).Healthy) {
     if (-not (Update-RdpWrapper $Cfg)) { throw 'RDP Wrapper inutilisable : la session ne pourrait pas s''ouvrir.' }
@@ -164,30 +173,29 @@ function Add-RobloxAccount {
 
   $account = $Cfg.Accounts | Where-Object { $_.Name -eq $WindowsUser } | Select-Object -First 1
   if (-not $account) {
-    $account = New-AccountEntry $Cfg $WindowsUser $Roblox
+    $account = New-AccountEntry $Cfg $WindowsUser $Roblox $Role
     $Cfg.Accounts = @($Cfg.Accounts) + $account
   }
-  $account.Roblox = $Roblox
+  if ($Roblox) { $account.Roblox = $Roblox }
+  if ($Role) { $account.Role = $Role }
   if (-not (Get-LocalUser -Name $WindowsUser -ErrorAction SilentlyContinue)) {
-    $password = New-RandomPassword
-    New-LocalUser -Name $WindowsUser -Password $password -PasswordNeverExpires -AccountNeverExpires -UserMayNotChangePassword -Description (Get-AccountDescription $Roblox) | Out-Null
+    New-LocalUser -Name $WindowsUser -Password $password -PasswordNeverExpires -AccountNeverExpires -UserMayNotChangePassword -Description (Get-AccountDescription $label) | Out-Null
     Set-AccountCredential $account $password
-    Write-Log "Compte Windows $WindowsUser créé, mot de passe généré et mémorisé." OK
+    Write-Log "Compte Windows $WindowsUser créé avec le mot de passe commun." OK
   } elseif (-not [BssNative]::CredExists((Get-CredTarget $account))) {
-    $password = New-RandomPassword
-    Set-LocalUser -Name $WindowsUser -Password $password
-    Set-AccountCredential $account $password
-    Write-Log "Compte Windows $WindowsUser existant : nouveau mot de passe généré et mémorisé." WARN
+    Set-AccountCommonPassword $account
   }
   Add-ToRdpGroups $WindowsUser
   # Two Windows accounts playing one Roblox account would fight over it.
-  foreach ($other in @($Cfg.Accounts | Where-Object { $_.Name -ne $WindowsUser -and $_.Roblox -eq $Roblox -and $_.Enabled })) {
-    $other.Enabled = $false
-    Write-Log "$($other.Name) exclu : $Roblox a maintenant son propre compte Windows ($WindowsUser)." WARN
+  if ($Roblox) {
+    foreach ($other in @($Cfg.Accounts | Where-Object { $_.Name -ne $WindowsUser -and $_.Roblox -eq $Roblox -and $_.Enabled })) {
+      $other.Enabled = $false
+      Write-Log "$($other.Name) exclu : $Roblox a maintenant son propre compte Windows ($WindowsUser)." WARN
+    }
   }
   Save-BssConfig $Cfg
 
-  $account.MacroPath = New-CleanMacro $Cfg $Roblox $SourcePath
+  $account.MacroPath = New-CleanMacro $Cfg $label $SourcePath
   Save-BssConfig $Cfg
 
   if (-not (Test-SessionConnected (Get-AccountSession $account))) { [void](Open-AccountSession $Cfg $account) }
@@ -197,13 +205,33 @@ function Add-RobloxAccount {
   }
   if (-not (Install-RobloxInSession $account)) { throw "Roblox ne s'est pas installé dans la session de $WindowsUser en 10 minutes." }
 
-  $signedIn = Get-RobloxSignedIn $WindowsUser
-  if ($signedIn -eq $Roblox) {
-    Sync-NatroTask $Cfg $account
-    Start-Natro $account
-    Write-Log "$Roblox est prêt : la macro démarre." OK
+  [void](Update-LearnedRobloxNames $Cfg)
+  if (-not (Get-AccountReadiness $account)) {
+    if (Start-Natro $Cfg $account) { Write-Log "$label est prêt : la macro démarre." OK }
   } else {
-    Write-Log "$Roblox : dans la fenêtre Bureau à distance de $WindowsUser, connecte-toi à Roblox avec $Roblox. La macro démarrera ensuite toute seule (superviseur) ou avec « Lancer »." WARN
+    $who = $(if ($Roblox) { "avec $Roblox " } else { '' })
+    Write-Log "$label : dans la fenêtre Bureau à distance de $WindowsUser, connecte-toi à Roblox $who(une seule fois). La macro démarrera ensuite toute seule (superviseur) ou avec « Lancer »." WARN
+  }
+}
+
+function Set-AccountRobloxNames {
+  param($Cfg, [string] $Name, [string] $Roblox, [string] $Role)
+  $a = Get-AccountByName $Cfg $Name
+  foreach ($n in @($Roblox, $Role) | Where-Object { $_ }) {
+    if ($n -notmatch '^[A-Za-z0-9_]{3,20}$') { throw "Nom invalide : $n (3 à 20 lettres, chiffres ou _)." }
+  }
+  $a.Roblox = $Roblox
+  $a.Role = $Role
+  Save-BssConfig $Cfg
+  Sync-NatroTask $Cfg $a
+  Write-Log "$Name : compte Roblox « $(if ($Roblox) { $Roblox } else { 'retenu à la prochaine connexion' }) », rôle « $Role »." OK
+}
+
+# Applies the common password to every managed Windows account.
+function Set-CommonPasswordOnAll {
+  param($Cfg)
+  foreach ($a in @($Cfg.Accounts | Where-Object { Get-LocalUser -Name $_.Name -ErrorAction SilentlyContinue })) {
+    try { Set-AccountCommonPassword $a } catch { Write-Log "$($a.Name) : $($_.Exception.Message)" ERROR }
   }
 }
 
@@ -211,7 +239,9 @@ function Add-RobloxAccount {
 # serve as a base, most recently used first and Cursed ones before old ones.
 function Get-RobloxAccountSuggestions {
   param($Cfg)
-  $owned = @($Cfg.Accounts | Where-Object { $_.Roblox -and $_.Name -eq $_.Roblox } | ForEach-Object { $_.Roblox })
+  # A name already used by an account with its own Windows account (as its
+  # Roblox name, role or account name) is not suggested again.
+  $owned = @($Cfg.Accounts | Where-Object { $_.Name -eq $_.Roblox -or $_.Name -eq $_.Role } | ForEach-Object { $_.Name, $_.Roblox, $_.Role } | Where-Object { $_ })
   $groups = @{}
   foreach ($m in Find-Macros $Cfg) {
     $guess = Get-RobloxNameGuess $m.Name
@@ -230,11 +260,7 @@ function Get-RobloxAccountSuggestions {
 
 function Reset-AccountPassword {
   param($Cfg, [string] $Name)
-  $a = Get-AccountByName $Cfg $Name
-  $password = New-RandomPassword
-  Set-LocalUser -Name $Name -Password $password
-  Set-AccountCredential $a $password
-  Write-Log "$Name : nouveau mot de passe généré et mémorisé." OK
+  Set-AccountCommonPassword (Get-AccountByName $Cfg $Name)
 }
 
 function Set-AccountMacroPath {
@@ -309,8 +335,7 @@ function Update-Macros {
     [void](Update-Macro $Cfg $path)
     foreach ($a in @($Cfg.Accounts | Where-Object { $_.MacroPath -eq $path -and $_.Enabled -and -not $_.Paused })) {
       if ((Test-SessionConnected (Get-AccountSession $a $sessions)) -and -not (Test-NatroRunning $a)) {
-        Start-Natro $a
-        Write-Log "$($a.Name) : macro relancée." OK
+        if (Start-Natro $Cfg $a) { Write-Log "$($a.Name) : macro relancée." OK }
       }
     }
   }
@@ -436,7 +461,8 @@ function Get-AccountRows {
     if ($state) { $state = "pas prêt : $state" }
     elseif ($Supervisor -and $Supervisor.Alive -and $Supervisor.Accounts.PSObject.Properties.Name -contains $a.Name) { $state = $Supervisor.Accounts.($a.Name).State }
     [pscustomobject]@{
-      Roblox      = $(if ($a.Roblox) { $a.Roblox } else { '?' })
+      Roblox      = $(if ($a.Roblox) { $a.Roblox } else { '(1re connexion)' })
+      'Rôle'      = [string]$a.Role
       Compte      = $a.Name
       'Connecté'  = [string](Get-RobloxSignedIn $a.Name)
       Inclus      = $(if ($a.Enabled) { 'oui' } else { 'non' })

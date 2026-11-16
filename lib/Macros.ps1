@@ -100,7 +100,9 @@ function Find-Macros {
     if (-not $profilePath) { continue }
     foreach ($sub in 'Documents', 'Desktop', 'Downloads') {
       $base = Join-Path $profilePath $sub
-      if (Test-Path $base) { $bases += $base }
+      # Profiles created by BSS Manager are private to their owner and to
+      # administrators: unreadable here simply means "not searched".
+      if (Test-Path $base -ErrorAction SilentlyContinue) { $bases += $base }
     }
   }
   $paths = foreach ($base in $bases) {
@@ -185,9 +187,18 @@ function Sync-NatroTask {
     -Settings $settings -Description "Starts Natro Macro when $($Account.Name) signs in (BSS Manager)" -Force | Out-Null
 }
 
+# Every start goes through here, so the task is created when it is missing
+# (it is registered lazily, once an account becomes ready) and an account
+# that is not ready is refused with its reason instead of a "file not found"
+# from the task scheduler. Returns $true when Natro was started.
 function Start-Natro {
-  param($Account)
-  Start-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-NatroTaskName $Account)
+  param($Cfg, $Account)
+  $missing = Get-AccountReadiness $Account
+  if ($missing) { Write-Log "$($Account.Roblox) ($($Account.Name)) : Natro non démarré, $missing." WARN; return $false }
+  $name = Get-NatroTaskName $Account
+  if (-not (Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -ErrorAction SilentlyContinue)) { Sync-NatroTask $Cfg $Account }
+  Start-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name
+  return $true
 }
 
 # ---------------------------------------------------------------------------
