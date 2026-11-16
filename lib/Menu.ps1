@@ -141,7 +141,7 @@ function Show-AccountsMenu {
     Write-Host '  2. Changer la macro d''un compte'
     Write-Host '  3. Choisir la branche d''une macro (ou celle par défaut)'
     Write-Host '  4. Pause / maintenance d''un compte'
-    Write-Host '  5. Inclure / exclure un compte'
+    Write-Host '  5. Compte actif / inactif'
     Write-Host '  6. Mot de passe d''un compte'
     Write-Host '  7. Retirer un compte'
     Write-Host '  0. Retour'
@@ -170,7 +170,7 @@ function Show-StopMenu {
   param($Cfg)
   $accounts = @($Cfg.Accounts)
   if (-not $accounts.Count) { return }
-  $i = Select-Index (@('Tous les comptes') + @($accounts | ForEach-Object { $_.Name })) 'Arrêter'
+  $i = Select-Index (@('Tout le système (Stop)') + @($accounts | ForEach-Object { $_.Name })) 'Arrêter'
   if ($i -eq 0) { Stop-All $Cfg }
   elseif ($i -gt 0) { Stop-All $Cfg @($accounts[$i - 1].Name) }
 }
@@ -195,8 +195,9 @@ function Show-MainMenu {
       Write-Host "Sessions macro : $($up.Count) / $(@($cfg.Accounts | Where-Object { $_.Enabled }).Count) connectée(s)"
     } catch { Write-Host "État indisponible : $($_.Exception.Message)" -ForegroundColor Yellow }
     Write-Host ''
-    Write-Host '  1. Tout lancer (mises à jour, sessions, macros)'
-    Write-Host '  2. Arrêter'
+    Write-Host "  Système : $(if ($cfg.Running) { 'DÉMARRÉ' } else { 'ARRÊTÉ' })"
+    Write-Host '  1. Start (mises à jour, sessions, macros, supervision)'
+    Write-Host '  2. Stop'
     Write-Host '  3. État détaillé'
     Write-Host '  4. Mettre à jour les macros'
     Write-Host '  5. Comptes et macros'

@@ -369,6 +369,22 @@ function New-CleanMacro {
     Write-Log "$Roblox a déjà sa macro Cursed : $target"
     return $target
   }
+  $target = New-MacroFolder $Cfg $Roblox $SourcePath
+  # An old release used as a base has been replaced: put it aside.
+  if ($source) { Move-MacroToArchive $Cfg $SourcePath }
+  return $target
+}
+
+# Creates Natro_Macro_<Name> under MacroRoot: a clone of a Cursed instance
+# through the fork's nm-new-instance.ps1, on DefaultBranch, with the
+# settings of $SettingsFrom when given (any macro, old or Cursed, left as it
+# is) or fresh ones. Returns its path.
+function New-MacroFolder {
+  param($Cfg, [string] $Name, [string] $SettingsFrom)
+  if ($Name -notmatch '^[A-Za-z0-9_]{3,20}$') { throw "Nom invalide : $Name (3 à 20 lettres, chiffres ou _)." }
+  $target = Get-RobloxMacroPath $Cfg $Name
+  if (Test-Path $target) { throw "$(Split-Path $target -Leaf) existe déjà." }
+  if ($SettingsFrom -and -not (Test-NatroFolder $SettingsFrom)) { throw "Pas une macro Natro : $SettingsFrom" }
   $template = Find-Macros $Cfg | Where-Object { $_.IsGit -and (Test-Path (Join-Path $_.Path 'tools\nm-new-instance.ps1')) } | Select-Object -First 1
   if (-not $template) { throw 'Aucune macro Cursed avec tools\nm-new-instance.ps1 pour servir de modèle.' }
 
@@ -378,13 +394,14 @@ function New-CleanMacro {
 
   $settings = Join-Path $target 'settings'
   if (-not (Test-Path $settings)) { New-Item -ItemType Directory -Path $settings | Out-Null }
-  if ($source) {
-    Copy-Item -Path (Join-Path $SourcePath 'settings\*') -Destination $settings -Recurse -Force
-    Write-Log "Réglages repris de $($source.Name)." OK
+  if ($SettingsFrom) {
+    Copy-Item -Path (Join-Path $SettingsFrom 'settings\*') -Destination $settings -Recurse -Force
+    Write-Log "Réglages repris de $(Split-Path $SettingsFrom -Leaf)." OK
   }
   Set-NatroIniValue $target 'GitBranch' $Cfg.DefaultBranch
   Set-NatroIniValue $target 'GitRepoUrl' $Cfg.DefaultRepoUrl
   [void](Update-Macro $Cfg $target)
-  if ($source) { Move-MacroToArchive $Cfg $SourcePath }
+  Add-MacroFirewallRules $target
+  Write-Log "$(Split-Path $target -Leaf) créée." OK
   return $target
 }

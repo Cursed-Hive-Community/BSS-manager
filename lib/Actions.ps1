@@ -4,11 +4,18 @@
 # Start / stop
 # ---------------------------------------------------------------------------
 
-# The one-click action: RDP Wrapper, macro updates, sessions, macros.
+# Start (the whole system, or some accounts): RDP Wrapper, macro updates,
+# sessions, macros. Any start turns the system on, so the supervisor looks
+# after what was started.
 function Start-All {
   param($Cfg, [string[]] $Names)
   $accounts = @(Select-Accounts $Cfg $Names)
-  if (-not $accounts.Count) { Write-Log 'Aucun compte à lancer : ajoute ou inclus un compte dans « Comptes et macros ».' WARN; return }
+  if (-not $accounts.Count) { Write-Log 'Aucun compte actif à lancer : rends un compte actif dans l''onglet Comptes Roblox.' WARN; return }
+  if (-not $Cfg.Running) {
+    $Cfg.Running = $true
+    Save-BssConfig $Cfg
+    Write-Log 'Système démarré : le superviseur surveille et relance les comptes actifs.' OK
+  }
 
   $wrapper = Get-WrapperState $Cfg
   if (-not ($wrapper.IniSupports -and $wrapper.IniCrlf -and $wrapper.ServiceDllOk)) {
@@ -59,12 +66,18 @@ function Start-All {
 }
 
 # Pauses first, so the supervisor does not reopen what is being closed.
+# Without names this is Stop for the whole system: it is also switched off,
+# and stays off after a reboot until Start.
 function Stop-All {
   param($Cfg, [string[]] $Names)
   $accounts = @(Select-Accounts $Cfg $Names -IncludeDisabled)
   if (-not $accounts.Count) { return }
   if (-not (Confirm-Action "Arrêter $(($accounts | ForEach-Object { $_.Name }) -join ', ') (sessions fermées, Roblox et Natro arrêtés) ?")) { return }
   foreach ($a in $accounts) { $a.Paused = $true }
+  if (-not $Names) {
+    $Cfg.Running = $false
+    Write-Log 'Système arrêté : le superviseur ne relance plus rien jusqu''au prochain Start.' OK
+  }
   Save-BssConfig $Cfg
   foreach ($a in $accounts) {
     if (Close-AccountSession $a) { Write-Log "$($a.Name) : session fermée, compte en pause." OK }
@@ -355,7 +368,7 @@ function Set-AccountFlag {
   if ($Flag -eq 'Enabled') { Sync-NatroTask $Cfg $a }
   $text = switch ($Flag) {
     'Paused' { if ($Value) { 'en pause : le superviseur ne relance plus rien (la session reste ouverte)' } else { 'n''est plus en pause' } }
-    'Enabled' { if ($Value) { 'inclus dans « Tout lancer » et la supervision' } else { 'exclu de « Tout lancer » et de la supervision' } }
+    'Enabled' { if ($Value) { 'actif : lancé par Start et surveillé' } else { 'inactif : ni lancé par Start, ni surveillé' } }
   }
   Write-Log "$Name $text." OK
 }
@@ -487,9 +500,10 @@ function Install-Manager {
     -Principal $principal -Settings $settings -Description 'One-click start of every macro (BSS Manager)' -Force | Out-Null
 
   $desktop = [Environment]::GetFolderPath('Desktop')
-  New-Shortcut (Join-Path $desktop 'BSS - Tout lancer.lnk') "$env:SystemRoot\System32\schtasks.exe" ('/run /tn "{0}{1}"' -f $Script:Bss.TaskPath, (Get-StartAllTaskName)) "$env:SystemRoot\System32\shell32.dll,137"
+  Remove-Item (Join-Path $desktop 'BSS - Tout lancer.lnk') -ErrorAction SilentlyContinue
+  New-Shortcut (Join-Path $desktop 'BSS - Start.lnk') "$env:SystemRoot\System32\schtasks.exe" ('/run /tn "{0}{1}"' -f $Script:Bss.TaskPath, (Get-StartAllTaskName)) "$env:SystemRoot\System32\shell32.dll,137"
   New-Shortcut (Join-Path $desktop 'BSS Manager.lnk') (Join-Path $root 'BSS-Manager.bat') '' "$env:SystemRoot\System32\shell32.dll,21"
-  Write-Log 'Raccourcis « BSS - Tout lancer » et « BSS Manager » créés sur le bureau.' OK
+  Write-Log 'Raccourcis « BSS - Start » et « BSS Manager » créés sur le bureau.' OK
 
   foreach ($a in @($Cfg.Accounts | Where-Object { Get-LocalUser -Name $_.Name -ErrorAction SilentlyContinue })) {
     Sync-NatroTask $Cfg $a
@@ -506,7 +520,7 @@ function Uninstall-Manager {
     Unregister-ScheduledTask -InputObject $task -Confirm:$false
   }
   $desktop = [Environment]::GetFolderPath('Desktop')
-  Remove-Item (Join-Path $desktop 'BSS - Tout lancer.lnk'), (Join-Path $desktop 'BSS Manager.lnk') -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $desktop 'BSS - Tout lancer.lnk'), (Join-Path $desktop 'BSS - Start.lnk'), (Join-Path $desktop 'BSS Manager.lnk') -ErrorAction SilentlyContinue
   Write-Log 'Tâches et raccourcis supprimés. Les fichiers, comptes et la connexion automatique ne sont pas touchés.' OK
 }
 
@@ -533,7 +547,7 @@ function Get-AccountRows {
       'Rôle'      = [string]$a.Role
       Compte      = $a.Name
       'Connecté'  = [string](Get-RobloxSignedIn $a.Name)
-      Inclus      = $(if ($a.Enabled) { 'oui' } else { 'non' })
+      Actif       = $(if ($a.Enabled) { 'oui' } else { 'non' })
       Pause       = $(if ($a.Paused) { 'oui' } else { '' })
       Adresse     = $a.Ip
       MotDePasse  = $(if ([BssNative]::CredExists((Get-CredTarget $a))) { 'enregistré' } else { 'non' })

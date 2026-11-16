@@ -146,6 +146,14 @@ function Get-BssDefaults {
     # Roblox installs fail while any other Roblox runs, the owner's included.
     # Off: a Roblox update waits until the owner closes their own Roblox.
     CloseOwnerRobloxForUpdates = $false
+    # The whole system's switch: Start sets it, Stop clears it. While it is
+    # off the supervisor does nothing. Kept across reboots, so a PC that
+    # restarts after a crash resumes the active accounts if it was on.
+    Running                 = $true
+    # Read-only status page on the local network, for the Raspberry Pi
+    # watchdog and the fleet.
+    StatusServerEnabled     = $true
+    StatusPort              = 47700
     Accounts                = @()
   }
 }

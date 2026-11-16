@@ -294,6 +294,39 @@ function Invoke-SelfTest {
       $oldWayFails -and $shared.Contains('GitBranch=main') -and ($null -eq $locked)
     }
 
+    Add-Check 'Status page: supervisor alive or silent, accounts listed, no secret or address' {
+      $cfgFake = [pscustomobject]@{ Running = $true; Accounts = @(
+          [pscustomobject]@{ Name = 'PlayerAlt2'; Roblox = 'PlayerAlt2'; Role = 'GuidingALT2'; Enabled = $true; Paused = $false; Ip = '127.0.0.4'; MacroPath = 'G:\x' }) }
+      $now = Get-Date
+      $sup = [pscustomobject]@{ LastPass = $now.AddSeconds(-30).ToString('o'); Interval = 60; Accounts = [pscustomobject]@{ PlayerAlt2 = [pscustomobject]@{ Session = 'connectée'; Natro = 'tourne'; State = 'ok' } } }
+      $old = [pscustomobject]@{ LastPass = $now.AddMinutes(-10).ToString('o'); Interval = 60; Accounts = $null }
+      $fresh = Get-StatusDocument $cfgFake $sup $false $now
+      $stale = Get-StatusDocument $cfgFake $old $true $now
+      $json = $fresh | ConvertTo-Json -Depth 5
+      $fresh.supervisor.alive -and ($fresh.supervisor.ageSec -eq 30) -and -not $stale.supervisor.alive -and $stale.robloxWindow -and
+        ($fresh.accounts[0].natro -eq 'tourne') -and ($fresh.accounts[0].role -eq 'GuidingALT2') -and
+        -not ($json -match '127\.0\.0\.4|G:\\\\x|password|Password|Cred') -and [bool]($json | ConvertFrom-Json)
+    }
+
+    Add-Check 'Status verdict: owner''s stop, maintenance, ok, crash and hang told apart' {
+      $on = [pscustomobject]@{ Running = $true }
+      $off = [pscustomobject]@{ Running = $false }
+      ((Get-StatusVerdict $off 'Running' $false $true)[0] -eq 'stopped') -and
+        ((Get-StatusVerdict $on 'Disabled' $false $false)[0] -eq 'stopped') -and
+        ((Get-StatusVerdict $on 'Running' $true $false)[0] -eq 'maintenance') -and
+        ((Get-StatusVerdict $on 'Running' $false $true)[0] -eq 'ok') -and
+        ((Get-StatusVerdict $on 'Running' $false $false)[1] -like '*bloqué*') -and
+        ((Get-StatusVerdict $on 'Ready' $false $false)[1] -like '*planté*')
+    }
+
+    Add-Check 'New macro: invalid or already existing names are refused before anything is created' {
+      $fake = [pscustomobject]@{ MacroRoot = $tmp; DefaultBranch = 'main'; DefaultRepoUrl = '' }
+      New-Item -ItemType Directory -Path (Join-Path $tmp 'Natro_Macro_Taken') | Out-Null
+      $refused = 0
+      foreach ($n in 'ab', 'bad name', 'Taken') { try { [void](New-MacroFolder $fake $n '') } catch { $refused++ } }
+      $refused -eq 3
+    }
+
     Add-Check 'git is installed' { [bool](Get-Command git -ErrorAction SilentlyContinue) }
   } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

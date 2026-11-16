@@ -8,6 +8,12 @@ Versioning[^semver].
 
 ## Added
 
+- Start / Stop for the whole system, kept across reboots; accounts are
+  *Actif* or not.
+- Read-only status page on the local network (`/status`, port 47700) with
+  a verdict telling the owner's stop, maintenance, health and a crashed or
+  hung supervisor apart.
+- *Nouvelle macro...*: creates `Natro_Macro_<name>` like the others.
 - A window (WinForms), opened by default: live account table, start, stop,
   restart, pause, passwords, macro assignment, branches, updates,
   conversion, RDP Wrapper, supervisor, automatic sign-in, settings and log.

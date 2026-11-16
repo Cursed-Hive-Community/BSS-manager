@@ -47,12 +47,14 @@ by itself after a crash.
 
 # Daily use
 
-- **BSS - Tout lancer** on the desktop: RDP Wrapper check, macro updates,
-  sessions, macros. No administrator prompt.
+- **BSS - Start** on the desktop: RDP Wrapper check, macro updates,
+  sessions, macros, supervision. No administrator prompt.
 - **BSS Manager** on the desktop: the window. Its tabs:
   - *Comptes Roblox*: live state, add accounts, start, stop, restart,
     open a session, pause, macro, password;
-  - *Macros*: every Natro folder found, branch, update;
+  - *Macros*: every Natro folder found, *Nouvelle macro...* (creates
+    `Natro_Macro_<name>` on `DefaultBranch`, settings fresh or copied from
+    another macro left untouched), branch, update;
   - *Réglages*: RDP Wrapper, supervisor, automatic sign-in, settings,
     installation;
   - *Journal*: the log, live.
@@ -151,6 +153,38 @@ account only runs when the signed-in account matches its Roblox account
 after its Roblox account, role or Windows account; otherwise *État* says
 what differs. Profiles created by BSS Manager are private, so this is only
 visible with administrator rights (the window has them).
+
+# Start, Stop and active accounts
+
+- *Actif*: an active account is launched by Start and looked after by the
+  supervisor; an inactive one is left alone.
+- *Start* switches the whole system on (kept in `config.json` as
+  `Running`), launches the active accounts and lets the supervisor restart
+  whatever stops. *Stop* closes every session, pauses the accounts and
+  switches the system off: the supervisor then does nothing, even after a
+  reboot, until the next Start. *Lancer* / *Arrêter* act on one account.
+- Closing the window changes nothing: the window is a dashboard, the
+  supervisor (a scheduled task) does the work.
+
+# Status page
+
+With `StatusServerEnabled`, `http://<PC>:47700/status` answers a read-only
+JSON document for a watchdog (the planned Raspberry Pi) and for the fleet:
+no action is possible through it, it carries no secret or address, and its
+firewall rule admits private networks only. The supervisor starts it and
+keeps it alive; it runs as its own process.
+
+| `health` | Meaning | A watchdog should |
+|---|---|---|
+| `stopped` | Stop pressed, or the supervisor disabled by the owner | nothing |
+| `maintenance` | a Roblox window is open | nothing |
+| `ok` | the supervisor passed recently | nothing |
+| `degraded` | the supervisor crashed or hangs | alert only |
+
+Cutting a PC's power is right only when neither this page nor a ping
+answers for several minutes: a crash of BSS Manager alone never needs it.
+`accounts` lists each account's session, Natro and state as the supervisor
+last saw them, and `supervisor.ageSec` how old that is.
 
 # After a crash
 

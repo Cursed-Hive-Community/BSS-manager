@@ -66,8 +66,20 @@ function Invoke-SupervisorPass {
     StartedAt = $Memory.StartedAt.ToString('o')
     LastPass  = (Get-Date).ToString('o')
     Interval  = [int]$Cfg.SupervisorIntervalSec
+    Running   = $true
     Wrapper   = ''
     Accounts  = [ordered]@{}
+  }
+
+  # The status page is part of what keeps running while the PC is alive.
+  try { Start-StatusServerIfNeeded $Cfg } catch { Write-Log "Page d'état : $($_.Exception.Message)" WARN }
+
+  $status.Running = [bool]$Cfg.Running
+  # Stopped by the owner: nothing to look after, not even RDP Wrapper.
+  if (-not $Cfg.Running) {
+    $status.Wrapper = 'système arrêté'
+    Write-FileAtomic $Script:Bss.StatusFile ($status | ConvertTo-Json -Depth 4)
+    return
   }
 
   $wrapper = Get-WrapperState $Cfg

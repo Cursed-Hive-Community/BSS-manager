@@ -243,6 +243,9 @@ function Set-UiStatusLabel {
 function Update-UiHeader {
   param([switch] $Force)
   $cfg = Get-BssConfig
+  if (Test-RobloxWindowOpen) { Set-UiStatusLabel $Script:Ui.SystemLabel 'Système : mise à jour de Roblox en cours' 'warn' }
+  elseif ($cfg.Running) { Set-UiStatusLabel $Script:Ui.SystemLabel 'Système : DÉMARRÉ' 'ok' }
+  else { Set-UiStatusLabel $Script:Ui.SystemLabel 'Système : ARRÊTÉ' 'normal' }
   if ($Force -or -not $Script:Ui.WrapperAt -or ((Get-Date) - $Script:Ui.WrapperAt).TotalSeconds -ge $Script:UiWrapperRefreshSec) {
     $Script:Ui.Wrapper = Get-WrapperState $cfg
     $Script:Ui.WrapperAt = Get-Date
@@ -258,12 +261,15 @@ function Update-UiHeader {
     Set-UiStatusLabel $Script:Ui.WrapperLabel "RDP Wrapper : À RÉPARER ($($why -join ', '))" 'bad'
   }
 
+  # Same vocabulary as the status page: what the owner chose (désactivé)
+  # is told apart from what went wrong (planté, bloqué).
   $task = Get-SupervisorTask
   $sup = Get-SupervisorStatus
   if (-not $task) { Set-UiStatusLabel $Script:Ui.SupervisorLabel 'Superviseur : pas installé' 'warn' }
-  elseif ($task.State -eq 'Disabled') { Set-UiStatusLabel $Script:Ui.SupervisorLabel 'Superviseur : désactivé' 'warn' }
+  elseif ($task.State -eq 'Disabled') { Set-UiStatusLabel $Script:Ui.SupervisorLabel 'Superviseur : désactivé (volontaire)' 'warn' }
   elseif ($sup -and $sup.Alive) { Set-UiStatusLabel $Script:Ui.SupervisorLabel "Superviseur : actif (il y a $($sup.AgeSec) s)" 'ok' }
-  else { Set-UiStatusLabel $Script:Ui.SupervisorLabel 'Superviseur : ARRÊTÉ' 'bad' }
+  elseif ($task.State -eq 'Running') { Set-UiStatusLabel $Script:Ui.SupervisorLabel 'Superviseur : BLOQUÉ (plus de passage récent)' 'bad' }
+  else { Set-UiStatusLabel $Script:Ui.SupervisorLabel 'Superviseur : PLANTÉ (arrêté sans demande)' 'bad' }
 
   $auto = Get-AutoLogonState
   if ($auto.Enabled -and $auto.SecretStored) { Set-UiStatusLabel $Script:Ui.AutoLogonLabel "Connexion auto : $($auto.User)" 'ok' }
@@ -298,7 +304,7 @@ function Set-UiAccountColors {
   foreach ($row in $Script:Ui.AccountsGrid.Rows) {
     $state = [string]$row.Cells['État'].Value
     $color = [Drawing.Color]::White
-    if ([string]$row.Cells['Pause'].Value -eq 'oui' -or [string]$row.Cells['Inclus'].Value -eq 'non') { $color = [Drawing.Color]::Gainsboro }
+    if ([string]$row.Cells['Pause'].Value -eq 'oui' -or [string]$row.Cells['Actif'].Value -eq 'non') { $color = [Drawing.Color]::Gainsboro }
     elseif ([string]$row.Cells['Natro'].Value -eq 'tourne') { $color = [Drawing.Color]::Honeydew }
     elseif ($state -like 'pas prêt*' -or [string]$row.Cells['Session'].Value -like 'DÉCONNECTÉE*') { $color = [Drawing.Color]::MistyRose }
     $row.DefaultCellStyle.BackColor = $color
@@ -602,6 +608,22 @@ function Set-UiMacroBranch {
   Start-UiAction "Branche $($branches[$r.b]) pour $($m.Name)" @('-Action', 'SetBranch', '-Path', $m.Path, '-Branch', $branches[$r.b])
 }
 
+function New-UiMacro {
+  $cfg = Get-BssConfig
+  $macros = @(Find-Macros $cfg)
+  $labels = @('(réglages neufs)') + @($macros | ForEach-Object { Format-MacroLabel $_ })
+  $r = Show-UiDialog 'Nouvelle macro' @(
+    @{ Key = 'name'; Label = 'Nom du compte'; Kind = 'text' },
+    @{ Key = 'from'; Label = 'Reprendre les réglages de'; Kind = 'list'; Items = $labels; Value = 0 }
+  ) "Crée Natro_Macro_<nom> dans $($cfg.MacroRoot), sur $($cfg.DefaultBranch), comme les autres. La macro dont les réglages sont repris n'est pas modifiée. Pour lui donner un compte Windows et Roblox, utilise ensuite « Ajouter des comptes Roblox » ou « Changer la macro »."
+  if (-not $r -or -not $r.name) { return }
+  if ($r.name -notmatch '^[A-Za-z0-9_]{3,20}$') { throw 'Nom invalide (3 à 20 lettres, chiffres ou _).' }
+  if (Test-Path (Get-RobloxMacroPath $cfg $r.name)) { throw "Natro_Macro_$($r.name) existe déjà." }
+  $arguments = @('-Action', 'NewMacro', '-Roblox', $r.name)
+  if ($r.from -gt 0) { $arguments += @('-Path', $macros[$r.from - 1].Path) }
+  Start-UiAction "Nouvelle macro $($r.name)" $arguments
+}
+
 function Update-UiMacro {
   $m = Get-UiSelectedMacro
   if (-not $m) { return }
@@ -658,7 +680,7 @@ function New-UiAccountsTab {
     (New-UiButton 'Réglages Roblox' { Invoke-UiAccountAction 'RobloxSettings' 'Appliquer les réglages Roblox (graphismes au plus bas, plein écran, sans haptique, réglages Natro) à ; Roblox sera fermé un instant puis rouvert par Natro,' $true }),
     (New-UiButton 'Reprendre la préparation' { Resume-UiSetup }),
     (New-UiButton 'Pause / reprendre' { Switch-UiAccountFlag 'Paused' }),
-    (New-UiButton 'Inclure / exclure' { Switch-UiAccountFlag 'Enabled' }),
+    (New-UiButton 'Actif / inactif' { Switch-UiAccountFlag 'Enabled' }),
     (New-UiButton 'Changer la macro...' { Set-UiAccountMacro }),
     (New-UiButton 'Compte Roblox / rôle...' { Set-UiAccountNames }),
     (New-UiButton 'Mot de passe commun' { Reset-UiAccountPassword }),
@@ -674,6 +696,7 @@ function New-UiMacrosTab {
   $tab.Text = 'Macros'
   $Script:Ui.MacrosGrid = New-UiGrid
   $buttons = New-UiFlow @(
+    (New-UiButton 'Nouvelle macro...' { New-UiMacro }),
     (New-UiButton 'Actualiser' { Update-UiMacros }),
     (New-UiButton 'Changer de branche...' { Set-UiMacroBranch }),
     (New-UiButton 'Mettre à jour' { Update-UiMacro }),
@@ -722,6 +745,8 @@ function New-UiSettingsTab {
     UpdateMacrosOnStart     = (New-Object Windows.Forms.CheckBox)
     InboxEnabled            = (New-Object Windows.Forms.CheckBox)
     CloseOwnerRobloxForUpdates = (New-Object Windows.Forms.CheckBox)
+    StatusServerEnabled     = (New-Object Windows.Forms.CheckBox)
+    StatusPort              = New-UiNumber 1024 65535
   }
   $labels = [ordered]@{
     SessionWidth            = 'Largeur des sessions'
@@ -732,9 +757,11 @@ function New-UiSettingsTab {
     RestartGraceSec         = 'Secondes avant de relancer'
     MacroRoot               = 'Dossier des macros'
     DefaultBranch           = 'Branche par défaut'
-    UpdateMacrosOnStart     = 'Mettre à jour les macros à chaque « Tout lancer »'
+    UpdateMacrosOnStart     = 'Mettre à jour les macros à chaque Start'
     InboxEnabled            = 'Accepter les demandes de redémarrage (fleet)'
     CloseOwnerRobloxForUpdates = 'Fermer aussi MON Roblox pour mettre Roblox à jour dans les comptes macro'
+    StatusServerEnabled     = 'Page d''état sur le réseau local (lecture seule)'
+    StatusPort              = 'Port de la page d''état'
   }
   $grid = New-Object Windows.Forms.TableLayoutPanel
   $grid.ColumnCount = 2
@@ -754,12 +781,18 @@ function New-UiSettingsTab {
   $grid.Controls.Add((New-UiButton 'Enregistrer les réglages' { Save-UiSettings }), 1, $grid.RowCount - 1)
 
   $Script:Ui.WrapperDetail = New-UiLabel ''
+  # Addresses a watchdog or the fleet can read the status page at.
+  $cfgNow = Get-BssConfig
+  $ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.PrefixOrigin -ne 'WellKnown' -and $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | ForEach-Object { $_.IPAddress })
+  $statusUrls = @($ips | ForEach-Object { "http://${_}:$($cfgNow.StatusPort)/status" }) -join '   '
+  $statusInfo = New-UiLabel "Page d'état : $statusUrls$(if (-not $cfgNow.StatusServerEnabled) { ' (désactivée)' })"
   # Docked groups stack from the bottom up, so they are added in reverse.
   foreach ($g in @(
       (New-UiGroup 'Installation' @(
         (New-UiButton 'Installer / réparer (superviseur, raccourcis, droits)' { if (Confirm-Ui 'Installer ou réparer BSS Manager ? Le dossier redevient modifiable par les administrateurs seulement.') { Start-UiAction 'Installation' @('-Action', 'Install') } }),
         (New-UiButton 'Désinstaller...' { if (Confirm-Ui 'Supprimer les tâches et raccourcis de BSS Manager ? Les comptes et les fichiers restent.') { Start-UiAction 'Désinstallation' @('-Action', 'Uninstall') } }))),
       (New-UiGroup 'Paramètres' @($grid)),
+      (New-UiGroup 'Page d''état (réseau local, lecture seule)' @($statusInfo)),
       (New-UiGroup 'Mot de passe des comptes macro' @(
         (New-UiButton 'Définir le mot de passe commun...' { [void](Set-UiCommonPassword) }),
         (New-UiButton 'Appliquer à tous les comptes' { if (-not (Test-CommonPassword)) { Show-UiInfo 'Définis d''abord le mot de passe commun.'; return }; if (Confirm-Ui 'Donner le mot de passe commun à tous les comptes Windows de macro ?') { Set-CommonPasswordOnAll (Get-BssConfig); Update-UiAccounts -Force } }))),
@@ -831,13 +864,14 @@ function Show-ManagerWindow {
   $Script:Ui.Form = $form
   $Script:Ui.Queue = New-Object Collections.ArrayList
 
+  $Script:Ui.SystemLabel = New-UiLabel '' $true
   $Script:Ui.WrapperLabel = New-UiLabel '' $true
   $Script:Ui.SupervisorLabel = New-UiLabel '' $true
   $Script:Ui.AutoLogonLabel = New-UiLabel '' $true
-  $status = New-UiFlow @($Script:Ui.WrapperLabel, $Script:Ui.SupervisorLabel, $Script:Ui.AutoLogonLabel)
+  $status = New-UiFlow @($Script:Ui.SystemLabel, $Script:Ui.WrapperLabel, $Script:Ui.SupervisorLabel, $Script:Ui.AutoLogonLabel)
   $actions = New-UiFlow @(
-    (New-UiButton 'Tout lancer' { Start-UiAction 'Tout lancer' @('-Action', 'Start') }),
-    (New-UiButton 'Tout arrêter' { if (Confirm-Ui 'Arrêter tous les comptes ? Les sessions sont fermées (Roblox et Natro arrêtés) et les comptes mis en pause.') { Start-UiAction 'Tout arrêter' @('-Action', 'Stop') } }),
+    (New-UiButton '▶  Start' { Start-UiAction 'Start' @('-Action', 'Start') }),
+    (New-UiButton '■  Stop' { if (Confirm-Ui 'Arrêter le système ? Toutes les sessions sont fermées (Roblox et Natro arrêtés) et le superviseur ne relance plus rien, même après un redémarrage du PC, jusqu''au prochain Start.') { Start-UiAction 'Stop' @('-Action', 'Stop') } }),
     (New-UiButton 'Mettre à jour les macros' { if (Confirm-Ui 'Mettre à jour les macros des comptes ? Chacune est arrêtée pendant sa mise à jour puis relancée.') { Start-UiAction 'Mise à jour des macros' @('-Action', 'UpdateMacros') } }),
     (New-UiButton 'Mettre à jour Roblox' { if (Confirm-Ui 'Mettre à jour Roblox dans chaque compte dont la session est ouverte ? Toutes les macros sont arrêtées pendant ce temps (environ 15 à 30 s par compte), puis relancées.') { Start-UiAction 'Mise à jour de Roblox' @('-Action', 'RobloxUpdate') } }),
     (New-UiButton 'Actualiser' { Update-UiHeader -Force; Update-UiAccounts -Force; Update-UiLog })

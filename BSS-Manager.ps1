@@ -23,6 +23,7 @@
   BSS-Manager.ps1 -Action OpenRoblox -Account GuidingALT1  # open Roblox to sign in
   BSS-Manager.ps1 -Action RobloxSettings -Account PlayerAlt3  # Roblox settings Natro needs (closes Roblox)
   BSS-Manager.ps1 -Action RobloxUpdate     # update Roblox everywhere, one account at a time
+  BSS-Manager.ps1 -Action NewMacro -Roblox <name> [-Path <macro to copy settings from>]
   BSS-Manager.ps1 -Action SelfTest                 # checks, no admin needed
 
 .LINK
@@ -30,7 +31,7 @@
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('Gui', 'Menu', 'Status', 'Start', 'Stop', 'Restart', 'Update', 'UpdateMacros', 'SetBranch', 'AddRoblox', 'OpenRoblox', 'RobloxSettings', 'RobloxUpdate', 'Supervise', 'Install', 'Uninstall', 'SelfTest')]
+  [ValidateSet('Gui', 'Menu', 'Status', 'Start', 'Stop', 'Restart', 'Update', 'UpdateMacros', 'SetBranch', 'AddRoblox', 'NewMacro', 'OpenRoblox', 'RobloxSettings', 'RobloxUpdate', 'Supervise', 'StatusServer', 'Install', 'Uninstall', 'SelfTest')]
   [string] $Action = 'Gui',
   [string[]] $Account,
   [string] $Path,
@@ -46,7 +47,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSCommandPath
-foreach ($module in 'Native', 'Core', 'RdpWrapper', 'Sessions', 'Macros', 'RobloxUpdate', 'AutoLogon', 'Supervisor', 'Actions', 'Menu', 'Gui', 'SelfTest') {
+foreach ($module in 'Native', 'Core', 'RdpWrapper', 'Sessions', 'Macros', 'RobloxUpdate', 'AutoLogon', 'Supervisor', 'StatusServer', 'Actions', 'Menu', 'Gui', 'SelfTest') {
   . (Join-Path $root "lib\$module.ps1")
 }
 
@@ -91,6 +92,8 @@ try {
     'UpdateMacros' { if ($Path) { Update-Macros $cfg -Paths @($Path) } else { Update-Macros $cfg $Account } }
     'SetBranch'    { if (-not ($Path -and $Branch)) { throw '-Path et -Branch sont obligatoires.' }; Set-MacroBranch $cfg $Path $Branch }
     'RobloxUpdate' { Invoke-RobloxUpdate $cfg $Account }
+    'NewMacro'     { if (-not $Roblox) { throw '-Roblox (nom du compte) est obligatoire.' }; [void](New-MacroFolder $cfg $Roblox $Path) }
+    'StatusServer' { Invoke-StatusServer }
     'RobloxSettings' { foreach ($a in @(Select-Accounts $cfg $Account -IncludeDisabled)) { [void](Set-AccountRobloxSettings $a -CloseRoblox) } }
     'OpenRoblox'   { foreach ($a in @(Select-Accounts $cfg $Account -IncludeDisabled)) { Open-RobloxForSignIn $cfg $a } }
     'AddRoblox'    { if (-not ($Roblox -or $Role)) { throw '-Roblox ou -Role est obligatoire.' }; Add-RobloxAccount $cfg $Roblox $Role $WindowsUser $Path }

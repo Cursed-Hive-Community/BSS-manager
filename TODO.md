@@ -86,6 +86,13 @@ Parsed and loaded, but nobody has run these yet:
       PlayerAlt2 played; its roblox:// keys are still missing)
 - [ ] a new account's Roblox install inside a window while other macros
       run
+- [ ] Start / Stop in real use, and the system staying off after a
+      reboot when stopped
+- [ ] status page served by the supervisor's child process and read from
+      another device on the LAN (document and verdict self-tested only)
+- [ ] *Nouvelle macro...* creating a folder in real use (name checks
+      self-tested only)
+- [ ] Raspberry Pi watchdog and smart power strip (not built)
 - [ ] Roblox settings written in a macro account and kept after Natro
       reopens Roblox (tested on a copy of the owner's real file only: 6
       values changed, Natro's own checks find nothing left)
