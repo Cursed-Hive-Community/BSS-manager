@@ -721,6 +721,7 @@ function New-UiSettingsTab {
     DefaultBranch           = (New-Object Windows.Forms.TextBox)
     UpdateMacrosOnStart     = (New-Object Windows.Forms.CheckBox)
     InboxEnabled            = (New-Object Windows.Forms.CheckBox)
+    CloseOwnerRobloxForUpdates = (New-Object Windows.Forms.CheckBox)
   }
   $labels = [ordered]@{
     SessionWidth            = 'Largeur des sessions'
@@ -733,6 +734,7 @@ function New-UiSettingsTab {
     DefaultBranch           = 'Branche par défaut'
     UpdateMacrosOnStart     = 'Mettre à jour les macros à chaque « Tout lancer »'
     InboxEnabled            = 'Accepter les demandes de redémarrage (fleet)'
+    CloseOwnerRobloxForUpdates = 'Fermer aussi MON Roblox pour mettre Roblox à jour dans les comptes macro'
   }
   $grid = New-Object Windows.Forms.TableLayoutPanel
   $grid.ColumnCount = 2
@@ -837,6 +839,7 @@ function Show-ManagerWindow {
     (New-UiButton 'Tout lancer' { Start-UiAction 'Tout lancer' @('-Action', 'Start') }),
     (New-UiButton 'Tout arrêter' { if (Confirm-Ui 'Arrêter tous les comptes ? Les sessions sont fermées (Roblox et Natro arrêtés) et les comptes mis en pause.') { Start-UiAction 'Tout arrêter' @('-Action', 'Stop') } }),
     (New-UiButton 'Mettre à jour les macros' { if (Confirm-Ui 'Mettre à jour les macros des comptes ? Chacune est arrêtée pendant sa mise à jour puis relancée.') { Start-UiAction 'Mise à jour des macros' @('-Action', 'UpdateMacros') } }),
+    (New-UiButton 'Mettre à jour Roblox' { if (Confirm-Ui 'Mettre à jour Roblox dans chaque compte dont la session est ouverte ? Toutes les macros sont arrêtées pendant ce temps (environ 15 à 30 s par compte), puis relancées.') { Start-UiAction 'Mise à jour de Roblox' @('-Action', 'RobloxUpdate') } }),
     (New-UiButton 'Actualiser' { Update-UiHeader -Force; Update-UiAccounts -Force; Update-UiLog })
   )
 

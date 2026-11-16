@@ -78,7 +78,11 @@ Parsed and loaded, but nobody has run these yet:
 - [ ] Natro in PlayerAlt3 joins its server after its Roblox update
 - [ ] GuidingALT1 updated the same way (its install crashed at 12:42 while
       PlayerAlt2 played; its roblox:// keys are still missing)
-- [ ] coordinated Roblox installs and updates (not built yet)
+- [ ] coordinated Roblox window in real use: the supervisor detecting a
+      failed update, stopping and restarting the macros, every account
+      updated (self-tested: lock and log reading only)
+- [ ] a new account's Roblox install inside a window while other macros
+      run
 - [ ] Roblox settings written in a macro account and kept after Natro
       reopens Roblox (tested on a copy of the owner's real file only: 6
       values changed, Natro's own checks find nothing left)

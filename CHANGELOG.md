@@ -33,6 +33,11 @@ Versioning[^semver].
 - *Ouvrir Roblox*: opens the Roblox app in an account's session to sign in;
   the preparation does it after installing Roblox. It also opens the
   roblox.com login page in Edge, which Natro's browser fallback needs.
+- Coordinated Roblox installs and updates ("Roblox window"): every Roblox
+  closed, accounts updated one at a time, the macros that ran restarted.
+  Opened automatically by the supervisor when an install or update
+  failed or roblox:// is missing, by the preparation of an account, and by
+  *Mettre à jour Roblox*.
 - Roblox settings in each macro account: what Natro checks, plus
   fullscreen on, haptics off and graphics manual at the lowest level;
   applied before every Natro start, with a button and a column.

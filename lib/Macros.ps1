@@ -195,6 +195,9 @@ function Start-Natro {
   param($Cfg, $Account)
   $missing = Get-AccountReadiness $Account
   if ($missing) { Write-Log "$($Account.Roblox) ($($Account.Name)) : Natro non démarré, $missing." WARN; return $false }
+  # Natro would open Roblox while another process installs it with every
+  # Roblox closed; that process restarts the macros itself afterwards.
+  if (Test-RobloxWindowOpen) { Write-Log "$($Account.Name) : Natro démarrera après la mise à jour de Roblox en cours." WARN; return $false }
   $name = Get-NatroTaskName $Account
   if (-not (Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -ErrorAction SilentlyContinue)) { Sync-NatroTask $Cfg $Account }
   # Natro is not running here, so a Roblox left open may be closed to put

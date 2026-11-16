@@ -109,6 +109,17 @@ Adding an account runs every step, each skipped when already done, so
    the roblox.com page opened in Edge (*Ouvrir Roblox* opens both again if
    needed). The supervisor starts the macro about two minutes later.
 
+Roblox's installer fails ("failed to access client process info: Accès
+refusé") whenever a Roblox of another Windows account runs on the PC, and
+Roblox forces an update about weekly. So every Roblox install or update
+runs in a "Roblox window": the running macros are stopped, every Roblox of
+the macro accounts is closed, accounts are updated one at a time, then the
+macros that ran are restarted. The supervisor opens one by itself when an
+account's last installer crashed or its `roblox://` links are missing, at
+most every 10 minutes; *Mettre à jour Roblox* opens one on demand; adding
+an account installs Roblox in one. The owner's own Roblox counts too: the
+window waits until it is closed, unless *Réglages* allows closing it.
+
 Natro only supports the Roblox installed from roblox.com ("Web Version"),
 not the Microsoft Store one ("UWP"). It tells them apart by the command of
 the `roblox://` link (`HKCR\roblox\shell\open\command` containing

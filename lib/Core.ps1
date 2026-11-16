@@ -128,6 +128,9 @@ function Get-BssDefaults {
     SupervisorIntervalSec   = 60
     RestartGraceSec         = 120
     InboxEnabled            = $false
+    # Roblox installs fail while any other Roblox runs, the owner's included.
+    # Off: a Roblox update waits until the owner closes their own Roblox.
+    CloseOwnerRobloxForUpdates = $false
     Accounts                = @()
   }
 }

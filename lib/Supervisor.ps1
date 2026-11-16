@@ -29,6 +29,7 @@ function Invoke-Supervisor {
     $memory = @{
       StartedAt          = Get-Date
       LastWrapperAttempt = [datetime]::MinValue
+      LastRobloxWindow   = $null
       Accounts           = @{}
     }
     $cfg = Get-BssConfig
@@ -75,6 +76,37 @@ function Invoke-SupervisorPass {
     $Memory.LastWrapperAttempt = Get-Date
     Write-Log "Superviseur : RDP Wrapper n'est pas utilisable (termsrv $($wrapper.TermsrvVersion)), réparation..." WARN
     if ($wrapper.IniSupports -and $wrapper.IniCrlf -and $wrapper.ServiceDllOk) { Restart-RdpService } else { [void](Update-RdpWrapper $Cfg) }
+  }
+
+  # Another process holds a Roblox window (every Roblox closed on purpose):
+  # restarting anything now would break its install or update.
+  if (Test-RobloxWindowOpen) {
+    $status.Wrapper = "$($status.Wrapper), mise à jour de Roblox en cours"
+    Write-FileAtomic $Script:Bss.StatusFile ($status | ConvertTo-Json -Depth 4)
+    return
+  }
+
+  # An account whose Roblox install or forced update failed (it fails
+  # whenever another Roblox runs) gets a window: all Roblox closed, updated
+  # one by one, macros restarted. At most once per RobloxAutoMinSeconds, so
+  # a Roblox failing for another reason cannot stop the macros in a loop.
+  $needs = @()
+  foreach ($a in @($Cfg.Accounts | Where-Object { $_.Enabled -and -not $_.Paused })) {
+    if (-not (Test-SessionConnected (Get-AccountSession $a))) { continue }
+    $need = Get-RobloxUpdateNeed $a
+    if ($need) { $needs += "$($a.Name) ($need)" }
+  }
+  if ($needs.Count) {
+    if ((Get-SecondsSince $Memory.LastRobloxWindow) -ge $Script:RobloxAutoMinSeconds) {
+      if (Test-OwnerRobloxBlocking $Cfg) {
+        $status.Wrapper = "$($status.Wrapper), mise à jour de Roblox en attente : ferme ton Roblox"
+      } else {
+        $Memory.LastRobloxWindow = Get-Date
+        Write-Log "Superviseur : Roblox à réparer pour $($needs -join ', ')." WARN
+        try { Invoke-RobloxUpdate $Cfg -Reason 'mise à jour automatique de Roblox' } catch { Write-Log "Superviseur : mise à jour de Roblox impossible, $($_.Exception.Message)" ERROR }
+        return
+      }
+    }
   }
 
   $restartRequests = @()

@@ -258,7 +258,10 @@ function Add-RobloxAccount {
   Set-AccountPrivacyOff $account
   Set-AccountEdgeQuiet $account
   Add-MacroFirewallRules $account.MacroPath
-  if (-not (Install-RobloxInSession $account)) { throw "Roblox ne s'est pas installé dans la session de $WindowsUser." }
+  # Roblox's installer fails while any other Roblox runs: install in a
+  # window, which pauses the running macros briefly and restarts them.
+  $installed = Invoke-RobloxWindow $Cfg "installation de Roblox pour $WindowsUser" { Install-RobloxInSession $account } 300
+  if (-not $installed) { throw "Roblox ne s'est pas installé dans la session de $WindowsUser." }
   # Give the installer's own registration a moment, then fill any gap.
   [void](Wait-Until { Get-RegisteredProtocolExe "Registry::HKEY_USERS\$((Get-LocalUser -Name $WindowsUser).SID.Value)\Software\Classes" 'roblox' } 60 5)
   [void](Register-RobloxProtocols $account)

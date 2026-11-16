@@ -255,6 +255,31 @@ function Invoke-SelfTest {
       $same
     }
 
+    Add-Check 'Roblox window lock: held by a live process, ignored when its process died or it is stale' {
+      $saved = $Script:Bss.StateDir
+      $Script:Bss.StateDir = $tmp
+      try {
+        $lock = Get-RobloxLockPath
+        $none = Test-RobloxWindowOpen
+        Set-Content $lock $PID
+        $mine = Test-RobloxWindowOpen
+        $dead = 999999
+        while (Get-Process -Id $dead -ErrorAction SilentlyContinue) { $dead-- }
+        Set-Content $lock $dead
+        $deadOpen = Test-RobloxWindowOpen
+        Set-Content $lock $PID
+        (Get-Item $lock).LastWriteTime = (Get-Date).AddMinutes(-($Script:RobloxLockStaleMinutes + 1))
+        $staleOpen = Test-RobloxWindowOpen
+        (-not $none) -and $mine -and (-not $deadOpen) -and (-not $staleOpen)
+      } finally { $Script:Bss.StateDir = $saved }
+    }
+
+    Add-Check 'Installer logs: the access-denied crash is recognised, a success is not' {
+      $crash = "2026-11-16T14:16:45.062Z,22.06,4f88,6,Critical [FLog::DesktopInstaller] ...Util.cpp(134)... FailFast(1) tid(4f88) 8000FFFF`n    Msg:[failed to access client process info: Access denied.]"
+      $ok = "Info [FLog::DesktopInstaller] Launch client command line: ...`nInfo [FLog::DesktopInstaller] Installer thread completed successfully"
+      (Test-InstallerLogCrashed $crash) -and -not (Test-InstallerLogCrashed $ok)
+    }
+
     Add-Check 'git is installed' { [bool](Get-Command git -ErrorAction SilentlyContinue) }
   } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
