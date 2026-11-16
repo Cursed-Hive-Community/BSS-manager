@@ -46,6 +46,8 @@ What is proven, by which kind of evidence, and what is not.
       2-minute grace (12:58), Natro running at 12:59
 - [x] per-account privacy set to off in a signed-in account's hive
       (GuidingALT1, PlayerAlt2)
+- [x] PlayerAlt3's missing roblox:// keys registered; after a Natro restart
+      the owner saw Natro detect "Web Version" instead of "Not Found"
 - [x] a brand-new account end to end (PlayerAlt3, 13:04-13:08): installer
       waited for to its end (52 s), Roblox opened and shown, macro started
       by the supervisor after the sign-in; three macros running together
@@ -65,10 +67,9 @@ Parsed and loaded, but nobody has run these yet:
       roblox.com without asking, in a macro account
 - [ ] Natro's browser fallback (every fifth reconnect attempt) joins the
       private server once the account is signed in on roblox.com
-- [ ] Natro in PlayerAlt3 shows "Web Version" and joins through roblox://
-      after the registration (keys proven absent before and present after;
-      why the installer left them out, a Roblox stopped right after
-      install, not proven)
+- [ ] Natro in PlayerAlt3 joins its server through roblox:// (why the
+      installer left the keys out, a Roblox stopped right after install,
+      not proven)
 - [ ] Roblox settings written in a macro account and kept after Natro
       reopens Roblox (tested on a copy of the owner's real file only: 6
       values changed, Natro's own checks find nothing left)
