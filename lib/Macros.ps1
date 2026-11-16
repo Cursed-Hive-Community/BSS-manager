@@ -1,0 +1,240 @@
+﻿# Natro Macro folders: discovery, branch, start/stop inside a session, update.
+#
+# Updates are delegated to the fork's own tools (tools\nm-git-update.ps1 and
+# tools\nm-git-adopt.ps1) instead of being written a second time here. They
+# keep settings\ (git-ignored), stop only the processes of their own folder,
+# and accept -Yes (no prompt) and -NoRestart. The restart is ours because
+# their restart would start the macro in the caller's session, not in the
+# macro account's one.
+# https://github.com/Cursed-Hive-Community/NatroMacroCursed/blob/feature/rays-extensions/UPDATE-GIT.md
+#
+# The branch an instance follows is read from GitBranch/GitRepoUrl in its
+# settings\nm_config.ini: the same keys the macro's Git Sync button uses, so
+# the two never disagree.
+
+$Script:UpdatingStaleMinutes = 15
+
+function Get-NatroIniPath { param([string] $Path) return (Join-Path $Path 'settings\nm_config.ini') }
+
+function Get-NatroIniValue {
+  param([string] $Path, [string] $Key)
+  $ini = Get-NatroIniPath $Path
+  if (-not (Test-Path $ini)) { return $null }
+  $m = [regex]::Match([IO.File]::ReadAllText($ini), "(?m)^$([regex]::Escape($Key))=(.*?)\s*$")
+  if ($m.Success -and $m.Groups[1].Value) { return $m.Groups[1].Value }
+  return $null
+}
+
+# Sets Key=Value inside [Settings], adding the line or the section if needed.
+function Set-NatroIniValue {
+  param([string] $Path, [string] $Key, [string] $Value)
+  $ini = Get-NatroIniPath $Path
+  $lines = @()
+  if (Test-Path $ini) { $lines = @([IO.File]::ReadAllLines($ini)) }
+  $out = New-Object Collections.Generic.List[string]
+  $inSettings = $false
+  $done = $false
+  foreach ($line in $lines) {
+    if ($line -match '^\s*\[(.+)\]\s*$') {
+      if ($inSettings -and -not $done) { $out.Add("$Key=$Value"); $done = $true }
+      $inSettings = ($Matches[1] -eq 'Settings')
+    } elseif ($inSettings -and $line -match "^$([regex]::Escape($Key))=") {
+      $out.Add("$Key=$Value"); $done = $true; continue
+    }
+    $out.Add($line)
+  }
+  if (-not $done) {
+    if (-not $inSettings) { $out.Add('[Settings]') }
+    $out.Add("$Key=$Value")
+  }
+  [IO.File]::WriteAllLines($ini, $out)
+}
+
+function Get-MacroBranch {
+  param($Cfg, [string] $Path)
+  $branch = Get-NatroIniValue $Path 'GitBranch'
+  if ($branch) { return $branch }
+  return $Cfg.DefaultBranch
+}
+
+function Get-MacroRepoUrl {
+  param($Cfg, [string] $Path)
+  $url = Get-NatroIniValue $Path 'GitRepoUrl'
+  if ($url) { return $url }
+  return $Cfg.DefaultRepoUrl
+}
+
+function Test-NatroFolder {
+  param([string] $Path)
+  return ($Path -and (Test-Path (Join-Path $Path 'submacros\natro_macro.ahk')))
+}
+
+function Get-MacroInfo {
+  param($Cfg, [string] $Path)
+  $script = Join-Path $Path 'submacros\natro_macro.ahk'
+  $version = Select-String -Path $script -Pattern 'VersionID\s*:=\s*"([^"]+)"' -List -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.Matches[0].Groups[1].Value }
+  $lastSetting = Get-ChildItem (Join-Path $Path 'settings') -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  $isGit = Test-Path (Join-Path $Path '.git')
+  [pscustomobject]@{
+    Path     = $Path
+    Name     = Split-Path $Path -Leaf
+    Version  = $(if ($version) { $version } else { '?' })
+    IsGit    = $isGit
+    Branch   = $(if ($isGit) { Get-MacroBranch $Cfg $Path } else { '' })
+    HasTools = Test-Path (Join-Path $Path 'tools\nm-git-update.ps1')
+    LastUsed = $(if ($lastSetting) { $lastSetting.LastWriteTime } else { (Get-Item $Path).LastWriteTime })
+  }
+}
+
+# Macro folders under MacroRoot and in each local profile, newest use first.
+function Find-Macros {
+  param($Cfg)
+  $bases = @()
+  if ($Cfg.MacroRoot -and (Test-Path $Cfg.MacroRoot)) { $bases += $Cfg.MacroRoot }
+  foreach ($user in Get-LocalUser | Where-Object { $_.Enabled }) {
+    $profilePath = Get-UserProfilePath $user.Name
+    if (-not $profilePath) { continue }
+    foreach ($sub in 'Documents', 'Desktop', 'Downloads') {
+      $base = Join-Path $profilePath $sub
+      if (Test-Path $base) { $bases += $base }
+    }
+  }
+  $paths = foreach ($base in $bases) {
+    Get-ChildItem $base -Directory -Depth 1 -ErrorAction SilentlyContinue |
+      Where-Object { Test-NatroFolder $_.FullName } | ForEach-Object { $_.FullName }
+  }
+  return @($paths | Sort-Object -Unique | ForEach-Object { Get-MacroInfo $Cfg $_ } | Sort-Object LastUsed -Descending)
+}
+
+# ---------------------------------------------------------------------------
+# Processes
+# ---------------------------------------------------------------------------
+
+# AutoHotkey processes started from this folder, whatever their session.
+# https://learn.microsoft.com/windows/win32/cimwin32prov/win32-process
+function Get-NatroProcesses {
+  param([string] $Path)
+  if (-not $Path) { return @() }
+  $prefix = $Path.TrimEnd('\') + '\'
+  return @(Get-CimInstance Win32_Process -Filter "Name='AutoHotkey32.exe' OR Name='AutoHotkey64.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+}
+
+# The main macro script is what matters: its helpers (background.ahk, the
+# fleet coordinator) may outlive it.
+function Test-NatroRunning {
+  param($Account, [int] $SessionId = -1)
+  foreach ($p in Get-NatroProcesses $Account.MacroPath) {
+    if ($p.CommandLine -notmatch 'natro_macro\.ahk') { continue }
+    if ($SessionId -lt 0 -or $p.SessionId -eq $SessionId) { return $true }
+  }
+  return $false
+}
+
+function Stop-NatroProcesses {
+  param([string] $Path)
+  foreach ($p in Get-NatroProcesses $Path) {
+    try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch {
+      Write-Log "PID $($p.ProcessId) non arrêté : $($_.Exception.Message)" WARN
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Start inside the account's own session
+# ---------------------------------------------------------------------------
+# A task with an Interactive principal runs in that user's desktop session, at
+# logon and whenever it is started on demand. That is the only supported way
+# to start a program in another user's session without its password.
+# https://learn.microsoft.com/windows/win32/taskschd/principal-logontype
+
+function Get-NatroTaskName { param($Account) return "Natro-$($Account.Name)" }
+
+function Sync-NatroTask {
+  param($Cfg, $Account)
+  $name = Get-NatroTaskName $Account
+  $existing = Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -ErrorAction SilentlyContinue
+  $bat = ''
+  if ($Account.MacroPath) { $bat = Join-Path $Account.MacroPath 'START.bat' }
+  if (-not ($Account.Enabled -and $bat -and (Test-Path $bat))) {
+    if ($existing) { Unregister-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -Confirm:$false }
+    if ($Account.Enabled -and $Account.MacroPath) { Write-Log "$($Account.Name) : START.bat introuvable dans $($Account.MacroPath)." WARN }
+    return
+  }
+  $user = Get-QualifiedUser $Account.Name
+  # START.bat forwards its arguments to natro_macro.ahk: 1 = press Start by
+  # itself, 0 = no heartbeat window, then the delay before launching.
+  $action = New-ScheduledTaskAction -Execute ('"{0}"' -f $bat) -Argument ('1 0 {0}' -f [int]$Cfg.NatroStartDelaySec) -WorkingDirectory $Account.MacroPath
+  $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+  $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+  Register-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -Action $action -Trigger $trigger -Principal $principal `
+    -Settings $settings -Description "Starts Natro Macro when $($Account.Name) signs in (BSS Manager)" -Force | Out-Null
+}
+
+function Start-Natro {
+  param($Account)
+  Start-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-NatroTaskName $Account)
+}
+
+# ---------------------------------------------------------------------------
+# Updates
+# ---------------------------------------------------------------------------
+
+function Get-UpdatingMarker { param([string] $Path) return (Join-Path $Script:Bss.StateDir ('updating-{0}.txt' -f (Split-Path $Path -Leaf))) }
+
+# The supervisor leaves a macro alone while it is being updated, or it would
+# restart it in the middle and lock the files git is replacing. The marker
+# expires by itself so a crashed update cannot block a macro for good.
+function Test-MacroUpdating {
+  param([string] $Path)
+  $marker = Get-UpdatingMarker $Path
+  return ((Test-Path $marker) -and ((Get-Item $marker).LastWriteTime -gt (Get-Date).AddMinutes(-$Script:UpdatingStaleMinutes)))
+}
+
+function Invoke-ForkTool {
+  param([string] $Script, [string[]] $Arguments)
+  $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script @Arguments 2>&1
+  foreach ($line in $output) {
+    $text = "$line".TrimEnd()
+    if ($text) { Write-Log "  $text" }
+  }
+  return $LASTEXITCODE
+}
+
+# Returns $true when the folder is now on the latest commit of its branch.
+function Update-Macro {
+  param($Cfg, [string] $Path)
+  $tool = Join-Path $Path 'tools\nm-git-update.ps1'
+  if (-not (Test-Path (Join-Path $Path '.git'))) { Write-Log "$Path n'est pas suivi par git : utilise « Convertir en version Cursed »." WARN; return $false }
+  if (-not (Test-Path $tool)) { Write-Log "$Path n'a pas les outils de mise à jour (tools\nm-git-update.ps1)." WARN; return $false }
+  $branch = Get-MacroBranch $Cfg $Path
+  $repo = Get-MacroRepoUrl $Cfg $Path
+  $marker = Get-UpdatingMarker $Path
+  Set-Content -Path $marker -Value (Get-Date -Format o)
+  try {
+    Write-Log "Mise à jour de $(Split-Path $Path -Leaf) ($branch)..."
+    $code = Invoke-ForkTool $tool @('-Yes', '-NoRestart', '-Branch', $branch, '-RepoUrl', $repo)
+    if ($code -ne 0) { Write-Log "Mise à jour de $(Split-Path $Path -Leaf) échouée (code $code) : la version actuelle est gardée." ERROR; return $false }
+    Write-Log "$(Split-Path $Path -Leaf) est à jour." OK
+    return $true
+  } finally {
+    Remove-Item $marker -ErrorAction SilentlyContinue
+  }
+}
+
+# Turns an old release folder into a git instance of the fork, in place.
+function Convert-MacroToGit {
+  param($Cfg, [string] $Path)
+  if (Get-NatroProcesses $Path) { Write-Log 'Cette macro tourne : arrête-la avant de la convertir.' ERROR; return $false }
+  $adopt = Find-Macros $Cfg | Where-Object { $_.IsGit -and (Test-Path (Join-Path $_.Path 'tools\nm-git-adopt.ps1')) } | Select-Object -First 1
+  if (-not $adopt) { Write-Log 'Aucune macro Cursed avec tools\nm-git-adopt.ps1 trouvée pour faire la conversion.' ERROR; return $false }
+  $code = Invoke-ForkTool (Join-Path $adopt.Path 'tools\nm-git-adopt.ps1') @('-Target', $Path, '-Branch', $Cfg.DefaultBranch, '-RepoUrl', $Cfg.DefaultRepoUrl, '-Yes')
+  if ($code -ne 0) { Write-Log "Conversion échouée (code $code)." ERROR; return $false }
+  Set-NatroIniValue $Path 'GitBranch' $Cfg.DefaultBranch
+  Set-NatroIniValue $Path 'GitRepoUrl' $Cfg.DefaultRepoUrl
+  Write-Log "$(Split-Path $Path -Leaf) suit maintenant $($Cfg.DefaultBranch). Tes réglages sont gardés." OK
+  return $true
+}
