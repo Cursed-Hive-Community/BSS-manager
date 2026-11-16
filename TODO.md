@@ -24,6 +24,9 @@ What is proven, by which kind of evidence, and what is not.
       the last multi-session logon (12.11) used a CRLF file
 - [x] `-Action Update` converts the LF file and restarts the service
 - [x] `mstsc /v:` opens no "unknown publisher" warning
+- [x] after the CRLF repair, Roblox1 signs in next to the owner's console
+      session, both active (events 41, 42, 21 at 11:13, no disconnect)
+- [x] the window's *Lancer* button opened that session
 - [x] the window builds and renders its four tabs with real data
       (`-Action Gui -SnapshotDir`, images checked by eye)
 
@@ -31,7 +34,6 @@ What is proven, by which kind of evidence, and what is not.
 
 Parsed and loaded, but nobody has run these yet:
 
-- [ ] a second session opens next to the owner's after the CRLF repair
 - [ ] window buttons and dialogs, clicked by a person (only the rendering
       is proven)
 - [ ] one-click start opens the sessions without a password prompt
