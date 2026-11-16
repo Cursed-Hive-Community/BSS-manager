@@ -56,6 +56,11 @@ What is proven, by which kind of evidence, and what is not.
       task scheduler is not the cause; and with every Roblox closed,
       PlayerAlt3's update succeeded in 11 s (15:26) and Roblox registered
       roblox:// itself, pointing at the new version-4951a2e067db4f6d
+- [x] coordinated Roblox window in real use (15:34:10-15:35:37): the
+      supervisor saw GuidingALT1's missing roblox:// links, stopped the
+      macros, closed every Roblox, checked GuidingALT1, PlayerAlt2 and
+      PlayerAlt3 one by one, registered GuidingALT1's links, restarted the
+      macros; 1 min 23 s in all, the three running again afterwards
 - [x] a brand-new account end to end (PlayerAlt3, 13:04-13:08): installer
       waited for to its end (52 s), Roblox opened and shown, macro started
       by the supervisor after the sign-in; three macros running together
@@ -78,9 +83,8 @@ Parsed and loaded, but nobody has run these yet:
 - [ ] Natro in PlayerAlt3 joins its server after its Roblox update
 - [ ] GuidingALT1 updated the same way (its install crashed at 12:42 while
       PlayerAlt2 played; its roblox:// keys are still missing)
-- [ ] coordinated Roblox window in real use: the supervisor detecting a
-      failed update, stopping and restarting the macros, every account
-      updated (self-tested: lock and log reading only)
+- [ ] GuidingALT1 joins its server through roblox:// (its links were
+      registered in the window; owner to confirm in game)
 - [ ] a new account's Roblox install inside a window while other macros
       run
 - [ ] Roblox settings written in a macro account and kept after Natro

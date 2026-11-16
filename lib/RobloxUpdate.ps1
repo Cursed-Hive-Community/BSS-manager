@@ -58,9 +58,14 @@ function Invoke-RobloxWindow {
   Set-Content -Path (Get-RobloxLockPath) -Value $PID
   $wasRunning = @()
   try {
+    # Only the account's own session counts: two accounts may point at one
+    # macro folder (Roblox2 still at GuidingALT1's), and only the one that
+    # runs it must be restarted.
     $processes = Get-AutoHotkeyProcesses
+    $sessions = Get-BssSessions
     foreach ($a in @($Cfg.Accounts | Where-Object { $_.MacroPath })) {
-      if (Test-NatroRunning $a -1 $processes) {
+      $session = Get-AccountSession $a $sessions
+      if ($session -and (Test-NatroRunning $a $session.Id $processes)) {
         $wasRunning += $a.Name
         Stop-NatroProcesses $a.MacroPath
       }
@@ -106,7 +111,7 @@ function Get-RobloxUpdateNeed {
   $dir = Get-RobloxLogDir $Account.Name
   try {
     $last = Get-ChildItem $dir -Filter 'RobloxPlayerInstaller_*.log' -ErrorAction Stop | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if ($last -and (Test-InstallerLogCrashed ([IO.File]::ReadAllText($last.FullName)))) { return 'installation ou mise à jour de Roblox bloquée' }
+    if ($last -and (Test-InstallerLogCrashed (Read-SharedText $last.FullName))) { return 'installation ou mise à jour de Roblox bloquée' }
   } catch {
     # No log yet: nothing to repair.
   }
@@ -130,7 +135,7 @@ function Update-AccountRoblox {
     [void](Wait-Until { -not (& $installerFor) } 240 3)
     Start-Sleep -Seconds 3
     [void](Wait-Until { -not (& $installerFor) } 60 3)
-    $crashed = @(& $newLogs | Where-Object { Test-InstallerLogCrashed ([IO.File]::ReadAllText($_.FullName)) }).Count
+    $crashed = @(& $newLogs | Where-Object { Test-InstallerLogCrashed (Read-SharedText $_.FullName) }).Count
     $result = $(if ($crashed) { 'ÉCHEC' } else { 'mis à jour' })
   }
   Get-RobloxProcessesAll | Where-Object { $_.User -eq $Account.Name } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }

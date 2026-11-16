@@ -170,7 +170,7 @@ function Get-RobloxSignedIn {
   # cannot even be tested, which must read as "unknown", not stop the caller.
   if (-not (Test-Path $file -ErrorAction SilentlyContinue)) { return $null }
   try {
-    $j = [IO.File]::ReadAllText($file) | ConvertFrom-Json
+    $j = (Read-SharedText $file) | ConvertFrom-Json
     if ([long]$j.UserId -gt 0 -and $j.Username) { return [string]$j.Username }
   } catch {
     # Roblox may be writing it; the next refresh reads it again.

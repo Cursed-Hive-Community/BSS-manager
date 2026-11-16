@@ -96,6 +96,21 @@ function Read-NewPassword {
   }
 }
 
+# Reads a file another program may be writing at that very moment (Natro's
+# nm_config.ini, Roblox's logs and appStorage.json): opened with full
+# sharing, and $null instead of an error when it is momentarily locked.
+# https://learn.microsoft.com/dotnet/api/system.io.fileshare
+function Read-SharedText {
+  param([string] $Path)
+  try {
+    $stream = [IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite, Delete')
+    try {
+      $reader = New-Object IO.StreamReader($stream, (New-Object Text.UTF8Encoding $false), $true)
+      return $reader.ReadToEnd()
+    } finally { $stream.Dispose() }
+  } catch { return $null }
+}
+
 # Writes through a temporary file so a reader never sees half a JSON document.
 # https://learn.microsoft.com/dotnet/api/system.io.file.replace
 function Write-FileAtomic {

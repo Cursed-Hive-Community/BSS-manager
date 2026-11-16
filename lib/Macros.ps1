@@ -22,7 +22,10 @@ function Get-NatroIniValue {
   param([string] $Path, [string] $Key)
   $ini = Get-NatroIniPath $Path
   if (-not (Test-Path $ini)) { return $null }
-  $m = [regex]::Match([IO.File]::ReadAllText($ini), "(?m)^$([regex]::Escape($Key))=(.*?)\s*$")
+  # Natro writes this file while it runs.
+  $text = Read-SharedText $ini
+  if ($null -eq $text) { return $null }
+  $m = [regex]::Match($text, "(?m)^$([regex]::Escape($Key))=(.*?)\s*$")
   if ($m.Success -and $m.Groups[1].Value) { return $m.Groups[1].Value }
   return $null
 }

@@ -280,6 +280,20 @@ function Invoke-SelfTest {
       (Test-InstallerLogCrashed $crash) -and -not (Test-InstallerLogCrashed $ok)
     }
 
+    Add-Check 'Files another program is writing: read when shared, $null (no error) when locked' {
+      $file = Join-Path $tmp 'nm_config.ini'
+      [IO.File]::WriteAllText($file, "[Settings]`r`nGitBranch=main`r`n")
+      $writer = [IO.File]::Open($file, 'Open', 'ReadWrite', 'ReadWrite')
+      try {
+        $oldWayFails = $false
+        try { [void][IO.File]::ReadAllText($file) } catch { $oldWayFails = $true }
+        $shared = Read-SharedText $file
+      } finally { $writer.Dispose() }
+      $locker = [IO.File]::Open($file, 'Open', 'ReadWrite', 'None')
+      try { $locked = Read-SharedText $file } finally { $locker.Dispose() }
+      $oldWayFails -and $shared.Contains('GitBranch=main') -and ($null -eq $locked)
+    }
+
     Add-Check 'git is installed' { [bool](Get-Command git -ErrorAction SilentlyContinue) }
   } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
