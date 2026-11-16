@@ -60,7 +60,8 @@ What is proven, by which kind of evidence, and what is not.
       supervisor saw GuidingALT1's missing roblox:// links, stopped the
       macros, closed every Roblox, checked GuidingALT1, PlayerAlt2 and
       PlayerAlt3 one by one, registered GuidingALT1's links, restarted the
-      macros; 1 min 23 s in all, the three running again afterwards
+      macros; 1 min 23 s in all, the three running again afterwards, and
+      GuidingALT1 joining its server in game (seen by the owner)
 - [x] a brand-new account end to end (PlayerAlt3, 13:04-13:08): installer
       waited for to its end (52 s), Roblox opened and shown, macro started
       by the supervisor after the sign-in; three macros running together
@@ -83,8 +84,6 @@ Parsed and loaded, but nobody has run these yet:
 - [ ] Natro in PlayerAlt3 joins its server after its Roblox update
 - [ ] GuidingALT1 updated the same way (its install crashed at 12:42 while
       PlayerAlt2 played; its roblox:// keys are still missing)
-- [ ] GuidingALT1 joins its server through roblox:// (its links were
-      registered in the window; owner to confirm in game)
 - [ ] a new account's Roblox install inside a window while other macros
       run
 - [ ] Roblox settings written in a macro account and kept after Natro
