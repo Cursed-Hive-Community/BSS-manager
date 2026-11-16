@@ -26,12 +26,12 @@ $Script:StatusMutexName = 'Global\BSS-Manager-StatusServer'
 # cutting its power is right.
 function Get-StatusVerdict {
   param($Cfg, [string] $TaskState, [bool] $RobloxWindow, [bool] $Alive)
-  if (-not $Cfg.Running) { return @('stopped', 'système arrêté (Stop)') }
-  if ($TaskState -in @('Disabled', 'Missing')) { return @('stopped', 'superviseur désactivé') }
-  if ($RobloxWindow) { return @('maintenance', 'mise à jour de Roblox en cours') }
+  if (-not $Cfg.Running) { return @('stopped', 'system stopped (Stop)') }
+  if ($TaskState -in @('Disabled', 'Missing')) { return @('stopped', 'supervisor disabled') }
+  if ($RobloxWindow) { return @('maintenance', 'Roblox update in progress') }
   if ($Alive) { return @('ok', '') }
-  if ($TaskState -eq 'Running') { return @('degraded', 'superviseur bloqué (plus de passage récent)') }
-  return @('degraded', 'superviseur planté (arrêté sans demande)')
+  if ($TaskState -eq 'Running') { return @('degraded', 'supervisor hung (no recent pass)') }
+  return @('degraded', 'supervisor crashed (stopped without being asked)')
 }
 
 # The document, built from the configuration and the supervisor's last
@@ -73,10 +73,12 @@ function Get-StatusDocument {
 
 function Add-StatusFirewallRule {
   param([int] $Port)
-  $name = "BSS Manager - page d'état ($Port)"
+  $name = "BSS Manager - status page ($Port)"
+  # The rule's name before the application was translated to English.
+  Get-NetFirewallRule -DisplayName "BSS Manager - page d'état ($Port)" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
   if (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue) { return }
   New-NetFirewallRule -DisplayName $name -Group 'BSS Manager' -Direction Inbound -Action Allow -Profile Private -Protocol TCP -LocalPort $Port | Out-Null
-  Write-Log "Pare-feu : page d'état ouverte sur le port $Port (réseau privé seulement)." OK
+  Write-Log "Firewall: status page open on port $Port (private networks only)." OK
 }
 
 function Test-StatusServerRunning {
@@ -93,7 +95,7 @@ function Start-StatusServerIfNeeded {
   Add-StatusFirewallRule ([int]$Cfg.StatusPort)
   $main = Join-Path $Script:Bss.Root 'BSS-Manager.ps1'
   Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"{0}"' -f $main), '-Action', 'StatusServer', '-Unattended') | Out-Null
-  Write-Log "Page d'état démarrée : http://$($env:COMPUTERNAME):$($Cfg.StatusPort)/status" OK
+  Write-Log "Status page started: http://$($env:COMPUTERNAME):$($Cfg.StatusPort)/status" OK
 }
 
 function Invoke-StatusServer {

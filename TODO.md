@@ -26,7 +26,7 @@ What is proven, by which kind of evidence, and what is not.
 - [x] `mstsc /v:` opens no "unknown publisher" warning
 - [x] after the CRLF repair, Roblox1 signs in next to the owner's console
       session, both active (events 41, 42, 21 at 11:13, no disconnect)
-- [x] the window's *Lancer* button opened that session
+- [x] the window's *Start* button (then *Lancer*) opened that session
 - [x] the window builds and renders its four tabs with real data
       (`-Action Gui -SnapshotDir`, images checked by eye)
 - [x] the add-accounts assistant renders the 8 accounts suggested by the
@@ -93,7 +93,7 @@ Parsed and loaded, but nobody has run these yet:
       reboot when stopped
 - [ ] status page read from another device on the LAN (proven from this
       PC only, through its LAN address)
-- [ ] *Nouvelle macro...* creating a folder in real use (name checks
+- [ ] *New macro...* creating a folder in real use (name checks
       self-tested only)
 - [ ] local account in real use: Natro started in the owner's session by
       its task, supervised, stopped without logging the owner off, and

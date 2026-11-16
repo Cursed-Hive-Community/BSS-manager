@@ -151,7 +151,7 @@ function Stop-NatroProcesses {
   param([string] $Path)
   foreach ($p in Get-NatroProcesses $Path) {
     try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch {
-      Write-Log "PID $($p.ProcessId) non arrêté : $($_.Exception.Message)" WARN
+      Write-Log "PID $($p.ProcessId) not stopped: $($_.Exception.Message)" WARN
     }
   }
 }
@@ -176,7 +176,7 @@ function Sync-NatroTask {
   # not installed yet, and Natro would try to open it anyway.
   if (-not ($Account.Enabled -and $bat -and (Test-Path $bat) -and -not (Get-AccountReadiness $Account))) {
     if ($existing) { Unregister-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -Confirm:$false }
-    if ($Account.Enabled -and $Account.MacroPath -and -not (Test-Path $bat)) { Write-Log "$($Account.Name) : START.bat introuvable dans $($Account.MacroPath)." WARN }
+    if ($Account.Enabled -and $Account.MacroPath -and -not (Test-Path $bat)) { Write-Log "$($Account.Name) : START.bat not found in $($Account.MacroPath)." WARN }
     return
   }
   $user = Get-QualifiedUser $Account.Name
@@ -197,17 +197,17 @@ function Sync-NatroTask {
 function Start-Natro {
   param($Cfg, $Account)
   $missing = Get-AccountReadiness $Account
-  if ($missing) { Write-Log "$($Account.Roblox) ($($Account.Name)) : Natro non démarré, $missing." WARN; return $false }
+  if ($missing) { Write-Log "$($Account.Roblox) ($($Account.Name)) : Natro not started, $missing." WARN; return $false }
   # Natro would open Roblox while another process installs it with every
   # Roblox closed; that process restarts the macros itself afterwards.
-  if (Test-RobloxWindowOpen) { Write-Log "$($Account.Name) : Natro démarrera après la mise à jour de Roblox en cours." WARN; return $false }
+  if (Test-RobloxWindowOpen) { Write-Log "$($Account.Name) : Natro will start after the Roblox update in progress." WARN; return $false }
   $name = Get-NatroTaskName $Account
   if (-not (Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -ErrorAction SilentlyContinue)) { Sync-NatroTask $Cfg $Account }
   # Natro is not running here, so a Roblox left open may be closed to put
   # the settings Natro needs in place; Natro opens it again itself.
-  try { [void](Set-AccountRobloxSettings $Account -CloseRoblox) } catch { Write-Log "$($Account.Name) : réglages Roblox non appliqués, $($_.Exception.Message)" WARN }
+  try { [void](Set-AccountRobloxSettings $Account -CloseRoblox) } catch { Write-Log "$($Account.Name) : Roblox settings not applied, $($_.Exception.Message)" WARN }
   # Natro joins through roblox:// links: make sure Windows can open them.
-  try { [void](Register-RobloxProtocols $Account) } catch { Write-Log "$($Account.Name) : liens roblox:// non vérifiés, $($_.Exception.Message)" WARN }
+  try { [void](Register-RobloxProtocols $Account) } catch { Write-Log "$($Account.Name) : roblox:// links not checked, $($_.Exception.Message)" WARN }
   Start-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name
   return $true
 }
@@ -243,7 +243,7 @@ function Add-MacroFirewallRules {
       -Program $rule.Program -Protocol $rule.Protocol | Out-Null
     $added++
   }
-  if ($added) { Write-Log "$(Split-Path $Path -Leaf) : $added règle(s) de pare-feu ajoutée(s) (réseau privé)." OK }
+  if ($added) { Write-Log "$(Split-Path $Path -Leaf) : $added firewall rule(s) added (private networks)." OK }
 }
 
 # ---------------------------------------------------------------------------
@@ -275,17 +275,17 @@ function Invoke-ForkTool {
 function Update-Macro {
   param($Cfg, [string] $Path)
   $tool = Join-Path $Path 'tools\nm-git-update.ps1'
-  if (-not (Test-Path (Join-Path $Path '.git'))) { Write-Log "$Path n'est pas suivi par git : utilise « Convertir en version Cursed »." WARN; return $false }
-  if (-not (Test-Path $tool)) { Write-Log "$Path n'a pas les outils de mise à jour (tools\nm-git-update.ps1)." WARN; return $false }
+  if (-not (Test-Path (Join-Path $Path '.git'))) { Write-Log "$Path is not tracked by git: use 'Convert to Cursed version'." WARN; return $false }
+  if (-not (Test-Path $tool)) { Write-Log "$Path lacks the update tools (tools\nm-git-update.ps1)." WARN; return $false }
   $branch = Get-MacroBranch $Cfg $Path
   $repo = Get-MacroRepoUrl $Cfg $Path
   $marker = Get-UpdatingMarker $Path
   Set-Content -Path $marker -Value (Get-Date -Format o)
   try {
-    Write-Log "Mise à jour de $(Split-Path $Path -Leaf) ($branch)..."
+    Write-Log "Updating $(Split-Path $Path -Leaf) ($branch)..."
     $code = Invoke-ForkTool $tool @('-Yes', '-NoRestart', '-Branch', $branch, '-RepoUrl', $repo)
-    if ($code -ne 0) { Write-Log "Mise à jour de $(Split-Path $Path -Leaf) échouée (code $code) : la version actuelle est gardée." ERROR; return $false }
-    Write-Log "$(Split-Path $Path -Leaf) est à jour." OK
+    if ($code -ne 0) { Write-Log "Update of $(Split-Path $Path -Leaf) failed (code $code): the current version is kept." ERROR; return $false }
+    Write-Log "$(Split-Path $Path -Leaf) is up to date." OK
     return $true
   } finally {
     Remove-Item $marker -ErrorAction SilentlyContinue
@@ -340,16 +340,16 @@ function Move-MacroToArchive {
   param($Cfg, [string] $Path)
   $root = $Cfg.MacroRoot.TrimEnd('\') + '\'
   if (-not $Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
-    Write-Log "$Path est hors de $($Cfg.MacroRoot) : laissé en place." WARN
+    Write-Log "$Path is outside $($Cfg.MacroRoot): left in place." WARN
     return
   }
-  if (Get-NatroProcesses $Path) { Write-Log "$(Split-Path $Path -Leaf) tourne : pas rangé dans $($Script:ArchiveFolderName)." WARN; return }
+  if (Get-NatroProcesses $Path) { Write-Log "$(Split-Path $Path -Leaf) is running: not moved to $($Script:ArchiveFolderName)." WARN; return }
   $archive = Join-Path $Cfg.MacroRoot $Script:ArchiveFolderName
   if (-not (Test-Path $archive)) { New-Item -ItemType Directory -Path $archive | Out-Null }
   $target = Join-Path $archive (Split-Path $Path -Leaf)
   if (Test-Path $target) { $target = "$target $(Get-Date -Format 'yyyyMMdd-HHmmss')" }
   Move-Item -LiteralPath $Path -Destination $target
-  Write-Log "Ancien dossier rangé : $target" OK
+  Write-Log "Old folder moved: $target" OK
 }
 
 # Returns the path of the Roblox account's macro, creating it if needed.
@@ -365,8 +365,8 @@ function New-CleanMacro {
   }
   $target = Get-RobloxMacroPath $Cfg $Roblox
   if (Test-Path $target) {
-    if (-not (Test-Path (Join-Path $target '.git'))) { throw "$target existe déjà et n'est pas une macro Cursed : renomme-le ou choisis-le comme base." }
-    Write-Log "$Roblox a déjà sa macro Cursed : $target"
+    if (-not (Test-Path (Join-Path $target '.git'))) { throw "$target already exists and is not a Cursed macro: rename it or choose it as the base." }
+    Write-Log "$Roblox already has its Cursed macro: $target"
     return $target
   }
   $target = New-MacroFolder $Cfg $Roblox $SourcePath
@@ -381,27 +381,27 @@ function New-CleanMacro {
 # is) or fresh ones. Returns its path.
 function New-MacroFolder {
   param($Cfg, [string] $Name, [string] $SettingsFrom)
-  if ($Name -notmatch '^[A-Za-z0-9_]{3,20}$') { throw "Nom invalide : $Name (3 à 20 lettres, chiffres ou _)." }
+  if ($Name -notmatch '^[A-Za-z0-9_]{3,20}$') { throw "Invalid name: $Name (3 to 20 letters, digits or _)." }
   $target = Get-RobloxMacroPath $Cfg $Name
-  if (Test-Path $target) { throw "$(Split-Path $target -Leaf) existe déjà." }
-  if ($SettingsFrom -and -not (Test-NatroFolder $SettingsFrom)) { throw "Pas une macro Natro : $SettingsFrom" }
+  if (Test-Path $target) { throw "$(Split-Path $target -Leaf) already exists." }
+  if ($SettingsFrom -and -not (Test-NatroFolder $SettingsFrom)) { throw "Not a Natro macro: $SettingsFrom" }
   $template = Find-Macros $Cfg | Where-Object { $_.IsGit -and (Test-Path (Join-Path $_.Path 'tools\nm-new-instance.ps1')) } | Select-Object -First 1
-  if (-not $template) { throw 'Aucune macro Cursed avec tools\nm-new-instance.ps1 pour servir de modèle.' }
+  if (-not $template) { throw 'No Cursed macro with tools\nm-new-instance.ps1 to use as a template.' }
 
-  Write-Log "Création de $target depuis $($template.Name)..."
+  Write-Log "Creating $target from $($template.Name)..."
   $code = Invoke-ForkTool (Join-Path $template.Path 'tools\nm-new-instance.ps1') @('-Name', (Split-Path $target -Leaf), '-Path', $Cfg.MacroRoot, '-Yes')
-  if ($code -ne 0 -or -not (Test-Path $target)) { throw "Création de la macro échouée (code $code)." }
+  if ($code -ne 0 -or -not (Test-Path $target)) { throw "Macro creation failed (code $code)." }
 
   $settings = Join-Path $target 'settings'
   if (-not (Test-Path $settings)) { New-Item -ItemType Directory -Path $settings | Out-Null }
   if ($SettingsFrom) {
     Copy-Item -Path (Join-Path $SettingsFrom 'settings\*') -Destination $settings -Recurse -Force
-    Write-Log "Réglages repris de $(Split-Path $SettingsFrom -Leaf)." OK
+    Write-Log "Settings copied from $(Split-Path $SettingsFrom -Leaf)." OK
   }
   Set-NatroIniValue $target 'GitBranch' $Cfg.DefaultBranch
   Set-NatroIniValue $target 'GitRepoUrl' $Cfg.DefaultRepoUrl
   [void](Update-Macro $Cfg $target)
   Add-MacroFirewallRules $target
-  Write-Log "$(Split-Path $target -Leaf) créée." OK
+  Write-Log "$(Split-Path $target -Leaf) created." OK
   return $target
 }

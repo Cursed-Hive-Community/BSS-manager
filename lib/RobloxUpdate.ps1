@@ -56,10 +56,10 @@ function Test-OwnerRobloxBlocking {
 # macros that were running. Returns what $Work returns, or throws.
 function Invoke-RobloxWindow {
   param($Cfg, [string] $Reason, [scriptblock] $Work, [int] $WaitOwnerSec = 0)
-  if (Test-RobloxWindowOpen) { throw 'Une installation ou mise à jour de Roblox est déjà en cours.' }
+  if (Test-RobloxWindowOpen) { throw 'A Roblox install or update is already in progress.' }
   if (Test-OwnerRobloxBlocking $Cfg) {
-    Write-Log "Créneau Roblox ($Reason) : ton propre Roblox est ouvert, il doit être fermé." WARN
-    if (-not (Wait-Until { -not (Test-OwnerRobloxBlocking $Cfg) } $WaitOwnerSec 5)) { throw 'Ton Roblox est ouvert : ferme-le, puis réessaie (ou autorise sa fermeture dans Réglages).' }
+    Write-Log "Roblox window ($Reason): your own Roblox is open, it must be closed." WARN
+    if (-not (Wait-Until { -not (Test-OwnerRobloxBlocking $Cfg) } $WaitOwnerSec 5)) { throw 'Your Roblox is open: close it, then try again (or allow closing it in Settings).' }
   }
   Set-Content -Path (Get-RobloxLockPath) -Value $PID
   $wasRunning = @()
@@ -80,15 +80,15 @@ function Invoke-RobloxWindow {
     Get-RobloxProcessesAll | Where-Object { $_.User -ne $env:USERNAME -or $ownerClosable } |
       ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Seconds 2
-    Write-Log "Créneau Roblox ouvert ($Reason) : $(if ($wasRunning) { "macros arrêtées : $($wasRunning -join ', ')" } else { 'aucune macro ne tournait' })."
+    Write-Log "Roblox window open ($Reason): $(if ($wasRunning) { "macros stopped: $($wasRunning -join ', ')" } else { 'no macro was running' })."
     return (& $Work)
   } finally {
     Remove-Item (Get-RobloxLockPath) -Force -ErrorAction SilentlyContinue
     foreach ($name in $wasRunning) {
       $a = $Cfg.Accounts | Where-Object { $_.Name -eq $name } | Select-Object -First 1
-      try { [void](Start-Natro $Cfg $a) } catch { Write-Log "$name : relance impossible, $($_.Exception.Message)" ERROR }
+      try { [void](Start-Natro $Cfg $a) } catch { Write-Log "$name : restart failed, $($_.Exception.Message)" ERROR }
     }
-    Write-Log "Créneau Roblox fermé ($Reason)$(if ($wasRunning) { ', macros relancées' })." OK
+    Write-Log "Roblox window closed ($Reason)$(if ($wasRunning) { ', macros restarted' })." OK
   }
 }
 
@@ -113,12 +113,12 @@ function Get-RobloxUpdateNeed {
   $sid = (Get-LocalUser -Name $Account.Name -ErrorAction SilentlyContinue).SID.Value
   if ($sid -and (Test-Path "Registry::HKEY_USERS\$sid")) {
     $registered = Get-RegisteredProtocolExe "Registry::HKEY_USERS\$sid\Software\Classes" 'roblox'
-    if (-not $registered -or -not (Test-Path $registered)) { return 'liens roblox:// absents' }
+    if (-not $registered -or -not (Test-Path $registered)) { return 'roblox:// links missing' }
   }
   $dir = Get-RobloxLogDir $Account.Name
   try {
     $last = Get-ChildItem $dir -Filter 'RobloxPlayerInstaller_*.log' -ErrorAction Stop | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if ($last -and (Test-InstallerLogCrashed (Read-SharedText $last.FullName))) { return 'installation ou mise à jour de Roblox bloquée' }
+    if ($last -and (Test-InstallerLogCrashed (Read-SharedText $last.FullName))) { return 'Roblox install or update stuck' }
   } catch {
     # No log yet: nothing to repair.
   }
@@ -130,20 +130,20 @@ function Get-RobloxUpdateNeed {
 function Update-AccountRoblox {
   param($Account)
   $exe = Get-RobloxPlayerExe $Account.Name
-  if (-not $exe) { return 'pas installé' }
+  if (-not $exe) { return 'not installed' }
   $dir = Get-RobloxLogDir $Account.Name
   $since = Get-Date
   [void](Start-InAccountSession $Account 'RobloxUpdate' $exe.FullName '')
   $installerFor = { @(Get-RobloxProcessesAll | Where-Object { $_.User -eq $Account.Name -and $_.Name -eq 'RobloxPlayerInstaller' }).Count }
   $newLogs = { @(Get-ChildItem $dir -Filter 'RobloxPlayerInstaller_*.log' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt $since }) }
-  $result = 'à jour'
+  $result = 'up to date'
   if (Wait-Until { (& $installerFor) -or (& $newLogs).Count } 25 2) {
     # The updater relaunches itself once: wait until none is left.
     [void](Wait-Until { -not (& $installerFor) } 240 3)
     Start-Sleep -Seconds 3
     [void](Wait-Until { -not (& $installerFor) } 60 3)
     $crashed = @(& $newLogs | Where-Object { Test-InstallerLogCrashed (Read-SharedText $_.FullName) }).Count
-    $result = $(if ($crashed) { 'ÉCHEC' } else { 'mis à jour' })
+    $result = $(if ($crashed) { 'FAILED' } else { 'updated' })
   }
   Get-RobloxProcessesAll | Where-Object { $_.User -eq $Account.Name } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
   [void](Register-RobloxProtocols $Account)
@@ -154,14 +154,14 @@ function Update-AccountRoblox {
 # Updates Roblox in every included account whose session is open, in one
 # window. -Names limits it to some accounts.
 function Invoke-RobloxUpdate {
-  param($Cfg, [string[]] $Names, [string] $Reason = 'mise à jour de Roblox')
+  param($Cfg, [string[]] $Names, [string] $Reason = 'Roblox update')
   $accounts = @(Select-Accounts $Cfg $Names | Where-Object {
       (Test-SessionConnected (Get-AccountSession $_)) -and (Get-RobloxPlayerExe $_.Name) })
-  if (-not $accounts.Count) { Write-Log 'Mise à jour de Roblox : aucun compte avec une session ouverte et Roblox installé.' WARN; return }
+  if (-not $accounts.Count) { Write-Log 'Roblox update: no account with an open session and Roblox installed.' WARN; return }
   Invoke-RobloxWindow $Cfg $Reason {
     foreach ($a in $accounts) {
       $r = Update-AccountRoblox $a
-      Write-Log "$($a.Name) : Roblox $r." $(if ($r -eq 'ÉCHEC') { 'ERROR' } else { 'OK' })
+      Write-Log "$($a.Name) : Roblox $r." $(if ($r -eq 'FAILED') { 'ERROR' } else { 'OK' })
     }
   } 300 | Out-Null
 }

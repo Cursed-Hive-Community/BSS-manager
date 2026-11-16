@@ -35,30 +35,30 @@ by itself after a crash.
 1. Put this folder at `C:\BSS-Manager`. Scheduled tasks point at it.
 2. Double-click `BSS-Manager.bat` and accept the administrator prompt: the
    window opens.
-3. Tab *Comptes Roblox*, *Ajouter des comptes Roblox...*: tick the Roblox
+3. Tab *Roblox accounts*, *Add Roblox accounts...*: tick the Roblox
    accounts suggested from your folder names, fix their names, pick the base
    folder of each, and let it prepare them one after the other. Then sign in
-   to Roblox once in each session it opened. The *État* column says what is
+   to Roblox once in each session it opened. The *State* column says what is
    still missing.
-4. Tab *Réglages*, *Installer / réparer*. It restricts the folder to
+4. Tab *Settings*, *Install / repair*. It restricts the folder to
    administrators, registers the supervisor and the one-click task, and
    creates two desktop shortcuts.
-5. Optionally *Connexion automatique de Windows*, *Activer...*.
+5. Optionally *Windows automatic sign-in*, *Enable...*.
 
 # Daily use
 
 - **BSS - Start** on the desktop: RDP Wrapper check, macro updates,
   sessions, macros, supervision. No administrator prompt.
 - **BSS Manager** on the desktop: the window. Its tabs:
-  - *Comptes Roblox*: live state, add accounts, start, stop, restart,
+  - *Roblox accounts*: live state, add accounts, start, stop, restart,
     open a session, pause, macro, password;
-  - *Macros*: every Natro folder found, *Nouvelle macro...* (creates
+  - *Macros*: every Natro folder found, *New macro...* (creates
     `Natro_Macro_<name>` on `DefaultBranch`, settings fresh or copied from
     another macro left untouched), branch, update;
-  - *Réglages*: RDP Wrapper, supervisor, automatic sign-in, settings,
+  - *Settings*: RDP Wrapper, supervisor, automatic sign-in, settings,
     installation;
-  - *Journal*: the log, live.
-- Long actions run in the background; the window shows them in *Journal*
+  - *Log*: the log, live.
+- Long actions run in the background; the window shows them in *Log*
   and in its status bar, one at a time.
 - To configure a macro by hand, pause its account first, or the supervisor
   restarts what you close.
@@ -89,12 +89,12 @@ the name; the Roblox account is then learnt at the first sign-in, and any
 other account signing in later is refused. A role is also shown in its own
 column, and a macro folder named after it is accepted.
 
-Every macro account shares one password chosen by the owner (*Réglages*,
-*Mot de passe des comptes macro*), since Windows sometimes asks for it. It
+Every macro account shares one password chosen by the owner (*Settings*,
+*Password of the macro accounts*), since Windows sometimes asks for it. It
 is kept in Credential Manager, like each session's copy.
 
 Adding an account runs every step, each skipped when already done, so
-*Reprendre la préparation* resumes an interrupted one:
+*Resume the preparation* resumes an interrupted one:
 
 1. Windows account created with the common password.
 2. Macro: a Cursed folder is used as is; otherwise a clean one is cloned
@@ -108,7 +108,7 @@ Adding an account runs every step, each skipped when already done, so
 4. Roblox installed in that session from roblox.com, only if the installer
    carries a valid Roblox Corporation signature, then opened.
 5. You sign in to Roblox in that session, by hand, once, in the app and on
-   the roblox.com page opened in Edge (*Ouvrir Roblox* opens both again if
+   the roblox.com page opened in Edge (*Open Roblox* opens both again if
    needed). The supervisor starts the macro about two minutes later.
 
 Roblox's installer fails ("failed to access client process info: Accès
@@ -118,9 +118,9 @@ runs in a "Roblox window": the running macros are stopped, every Roblox of
 the macro accounts is closed, accounts are updated one at a time, then the
 macros that ran are restarted. The supervisor opens one by itself when an
 account's last installer crashed or its `roblox://` links are missing, at
-most every 10 minutes; *Mettre à jour Roblox* opens one on demand; adding
+most every 10 minutes; *Update Roblox* opens one on demand; adding
 an account installs Roblox in one. The owner's own Roblox counts too: the
-window waits until it is closed, unless *Réglages* allows closing it.
+window waits until it is closed, unless *Settings* allows closing it.
 
 Natro only supports the Roblox installed from roblox.com ("Web Version"),
 not the Microsoft Store one ("UWP"). It tells them apart by the command of
@@ -143,32 +143,33 @@ smallest text, Shift Lock on, classic camera, keyboard movement, no
 inverted camera or profiler) plus fullscreen on and haptics off. Roblox
 rewrites that file when it exits, so it is written while Roblox is closed:
 before every Natro start (closing a Roblox left open, which Natro reopens)
-and before a session opens. *Réglages Roblox* applies it on demand and the
-*Réglages Roblox* column shows whether an account matches.
+and before a session opens. *Roblox settings* applies it on demand and the
+*Roblox settings* column shows whether an account matches.
 
 The Roblox account signed in is read from
 `%LOCALAPPDATA%\Roblox\LocalStorage\appStorage.json` in each profile. An
 account only runs when the signed-in account matches its Roblox account
 (or is the first one, while none is recorded) and its macro folder is named
-after its Roblox account, role or Windows account; otherwise *État* says
+after its Roblox account, role or Windows account; otherwise *State* says
 what differs. Profiles created by BSS Manager are private, so this is only
 visible with administrator rights (the window has them).
 
 # Start, Stop and active accounts
 
-- *Actif*: an active account is launched by Start and looked after by the
+- *Active*: an active account is launched by Start and looked after by the
   supervisor; an inactive one is left alone.
 - *Start* switches the whole system on (kept in `config.json` as
   `Running`), launches the active accounts and lets the supervisor restart
   whatever stops. *Stop* closes every session, pauses the accounts and
   switches the system off: the supervisor then does nothing, even after a
-  reboot, until the next Start. *Lancer* / *Arrêter* act on one account.
+  reboot, until the next Start. The account buttons *Start* / *Stop* act
+  on one account.
 - Closing the window changes nothing: the window is a dashboard, the
   supervisor (a scheduled task) does the work.
 
 # The local account
 
-*Compte local (ma session)...* picks one account, from a list, to run in
+*Local account (my session)...* picks one account, from a list, to run in
 the owner's own session instead of an RDP session: one session less to
 pay for. Its Roblox account, role and macro move to an entry for the
 owner's Windows account; the account it came from is made inactive and
@@ -264,7 +265,7 @@ any other action, an unknown account or a file over 4 KB.
 
 - The folder is writable by administrators only, since tasks run it with
   administrator rights. A write right added by hand for development is
-  removed by the next *Installer / réparer*.
+  removed by the next *Install / repair*.
 - The common macro-account password and each session's copy live in
   Credential Manager; the auto-logon password is an LSA secret, as
   Sysinternals Autologon stores it[^autologon]. None is written to a file or

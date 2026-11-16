@@ -29,12 +29,12 @@ function Test-SessionConnected {
 
 function Format-SessionState {
   param($Session)
-  if (-not $Session) { return 'fermée' }
+  if (-not $Session) { return 'closed' }
   switch ($Session.State) {
-    0 { return 'connectée' }
-    1 { return 'connectée' }
-    4 { return 'DÉCONNECTÉE (écran figé)' }
-    default { return "état $($Session.State)" }
+    0 { return 'connected' }
+    1 { return 'connected' }
+    4 { return 'DISCONNECTED (frozen screen)' }
+    default { return "state $($Session.State)" }
   }
 }
 
@@ -133,7 +133,7 @@ function Get-RdpCertificateHash {
 function Approve-LoopbackCertificate {
   param($Account)
   $hash = Get-RdpCertificateHash
-  if (-not $hash) { Write-Log 'Certificat Bureau à distance introuvable : Windows demandera de le confirmer.' WARN; return }
+  if (-not $hash) { Write-Log 'Remote Desktop certificate not found: Windows will ask to confirm it.' WARN; return }
   $key = "HKCU:\Software\Microsoft\Terminal Server Client\Servers\$($Account.Ip)"
   if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
   New-ItemProperty -Path $key -Name CertHash -Value ([byte[]]$hash) -PropertyType Binary -Force | Out-Null
@@ -148,15 +148,15 @@ function Open-AccountSession {
   # The owner's session is opened by the owner (or by automatic sign-in),
   # never by a Remote Desktop connection to oneself.
   if ($Account.Local) {
-    Write-Log "$($Account.Name) : compte local, il tourne dans ta session dès qu'elle est ouverte." WARN
+    Write-Log "$($Account.Name) : local account, it runs in your session as soon as it is open." WARN
     return $false
   }
   if (Get-AccountClient $Account) {
-    Write-Log "$($Account.Name) : une fenêtre de connexion est déjà ouverte, pas de deuxième." WARN
+    Write-Log "$($Account.Name) : a connection window is already open, no second one." WARN
     return $false
   }
   if (-not [BssNative]::CredExists((Get-CredTarget $Account))) {
-    Write-Log "$($Account.Name) : aucun mot de passe enregistré, Windows va le demander (coche « Mémoriser »)." WARN
+    Write-Log "$($Account.Name) : no saved password, Windows will ask for it (tick 'Remember me')." WARN
   }
   Approve-LoopbackCertificate $Account
   Start-Process -FilePath "$env:SystemRoot\System32\mstsc.exe" -ArgumentList (Get-MstscArguments $Cfg $Account)
@@ -200,17 +200,17 @@ function Test-RobloxInstalled {
 # to make an account ready, whoever is watching.
 function Get-AccountReadiness {
   param($Account)
-  if (-not (Get-LocalUser -Name $Account.Name -ErrorAction SilentlyContinue)) { return 'compte Windows introuvable' }
+  if (-not (Get-LocalUser -Name $Account.Name -ErrorAction SilentlyContinue)) { return 'Windows account not found' }
   # The local account runs in the owner's own session: no password to open it.
-  if (-not $Account.Local -and -not [BssNative]::CredExists((Get-CredTarget $Account))) { return 'mot de passe non enregistré' }
-  if (-not $Account.MacroPath) { return 'aucune macro associée' }
+  if (-not $Account.Local -and -not [BssNative]::CredExists((Get-CredTarget $Account))) { return 'password not saved' }
+  if (-not $Account.MacroPath) { return 'no macro assigned' }
   # A macro folder named after another account holds that account's settings
   # (fields, private server, webhook): never run it for this one. The owner
   # names folders after the Roblox account or after a role (GuidingALT2 is
   # played by PlayerAlt2), so any of the account's names is accepted.
   $macroOwner = Get-RobloxNameGuess (Split-Path $Account.MacroPath -Leaf)
   $names = @($Account.Roblox, $Account.Role, $Account.Name) | Where-Object { $_ }
-  if ($macroOwner -and $names -notcontains $macroOwner) { return "la macro est celle de $macroOwner, pas de $($names[0])" }
+  if ($macroOwner -and $names -notcontains $macroOwner) { return "the macro belongs to $macroOwner, not $($names[0])" }
   $signedIn = Get-RobloxSignedIn $Account.Name
   $installed = $true
   if (-not $signedIn) { $installed = Test-RobloxInstalled $Account.Name }
@@ -223,11 +223,11 @@ function Get-AccountReadiness {
 function Get-RobloxSignInProblem {
   param([string] $Expected, [string] $SignedIn, [bool] $Installed)
   if (-not $SignedIn) {
-    if (-not $Installed) { return 'Roblox pas installé dans la session' }
-    if ($Expected) { return "connecte-toi à Roblox avec $Expected (bouton « Ouvrir Roblox »)" }
-    return 'connecte-toi à Roblox (bouton « Ouvrir Roblox »)'
+    if (-not $Installed) { return 'Roblox not installed in the session' }
+    if ($Expected) { return "sign in to Roblox as $Expected ('Open Roblox' button)" }
+    return 'sign in to Roblox (''Open Roblox'' button)'
   }
-  if ($Expected -and $SignedIn -ne $Expected) { return "mauvais compte Roblox ($SignedIn au lieu de $Expected)" }
+  if ($Expected -and $SignedIn -ne $Expected) { return "wrong Roblox account ($SignedIn instead of $Expected)" }
   return ''
 }
 
@@ -242,7 +242,7 @@ function Update-LearnedRobloxNames {
     if ($signedIn) {
       $a.Roblox = $signedIn
       $changed = $true
-      Write-Log "$($a.Name) : compte Roblox retenu, $signedIn." OK
+      Write-Log "$($a.Name) : Roblox account learnt, $signedIn." OK
     }
   }
   if ($changed) { Save-BssConfig $Cfg }
@@ -262,7 +262,7 @@ function Set-CommonPassword {
   param([Security.SecureString] $Password)
   if (-not $Password -or $Password.Length -eq 0) { throw 'Mot de passe vide.' }
   [BssNative]::WriteCred($Script:CommonPasswordTarget, 'BSS Manager', $Password)
-  Write-Log 'Mot de passe commun des comptes macro enregistré.' OK
+  Write-Log 'Common password of the macro accounts saved.' OK
 }
 
 # Gives one Windows account the common password, in Windows and in its
@@ -270,12 +270,12 @@ function Set-CommonPassword {
 function Set-AccountCommonPassword {
   param($Account)
   # The owner's own password is never touched (the local account is theirs).
-  if ($Account.Local -or $Account.Name -eq $env:USERNAME) { throw "$($Account.Name) est ton propre compte Windows : son mot de passe n'est jamais changé." }
+  if ($Account.Local -or $Account.Name -eq $env:USERNAME) { throw "$($Account.Name) is your own Windows account: its password is never changed." }
   $password = Get-CommonPassword
-  if (-not $password) { throw 'Aucun mot de passe commun : définis-le d''abord (onglet Réglages).' }
+  if (-not $password) { throw 'No common password: set it first (Settings tab).' }
   Set-LocalUser -Name $Account.Name -Password $password
   Set-AccountCredential $Account $password
-  Write-Log "$($Account.Name) : mot de passe commun appliqué." OK
+  Write-Log "$($Account.Name) : common password applied." OK
 }
 
 # Windows caps a local account description at 48 characters; with a
@@ -337,8 +337,8 @@ function Set-AccountEdgeQuiet {
     @($edge, 'PersonalizationReportingEnabled', 0, 'DWord'),
     @($edge, 'AutoLaunchProtocolsFromOrigins', $Script:RobloxAutoLaunch, 'String')
   )
-  if (Set-AccountHiveValues $Account $values) { Write-Log "$($Account.Name) : Edge sans questions, et Roblox s'ouvre depuis roblox.com sans confirmation." OK }
-  else { Write-Log "$($Account.Name) : session fermée, Edge sera réglé à sa prochaine ouverture (Ouvrir Roblox ou Installer / réparer)." WARN }
+  if (Set-AccountHiveValues $Account $values) { Write-Log "$($Account.Name) : Edge without questions, and Roblox opens from roblox.com without confirmation." OK }
+  else { Write-Log "$($Account.Name) : session closed, Edge will be set at its next opening (Open Roblox or Install / repair)." WARN }
 }
 
 function Set-AccountPrivacyOff {
@@ -353,8 +353,8 @@ function Set-AccountPrivacyOff {
     @('Software\Microsoft\Personalization\Settings', 'AcceptedPrivacyPolicy', 0, 'DWord'),
     @('Software\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy', 'HasAccepted', 0, 'DWord')
   )
-  if (Set-AccountHiveValues $Account $values) { Write-Log "$($Account.Name) : confidentialité réglée sur non (publicité, localisation, saisie, reconnaissance vocale)." OK }
-  else { Write-Log "$($Account.Name) : session pas chargée, confidentialité non réglée." WARN }
+  if (Set-AccountHiveValues $Account $values) { Write-Log "$($Account.Name) : privacy set to off (advertising, location, typing, speech recognition)." OK }
+  else { Write-Log "$($Account.Name) : session not loaded, privacy not set." WARN }
 }
 
 # ---------------------------------------------------------------------------
@@ -391,7 +391,7 @@ function Get-RobloxSettingsFile {
 function Get-RobloxSettingsProperties {
   param([xml] $Doc)
   $props = $Doc.SelectSingleNode("//Item[@class='UserGameSettings']/Properties")
-  if (-not $props) { throw 'Fichier de réglages Roblox inattendu : pas de UserGameSettings.' }
+  if (-not $props) { throw 'Unexpected Roblox settings file: no UserGameSettings.' }
   return $props
 }
 
@@ -440,18 +440,18 @@ function Get-RobloxProcessesInSession {
   return @(Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session.Id })
 }
 
-# 'conformes', 'à appliquer (n)', or why it cannot be read.
+# 'compliant', 'to apply (n)', or why it cannot be read.
 function Get-RobloxSettingsState {
   param($Account)
   $file = Get-RobloxSettingsFile $Account.Name
-  if (-not $file) { return 'Roblox jamais lancé' }
+  if (-not $file) { return 'Roblox never started' }
   try {
     $doc = New-Object Xml.XmlDocument
     $doc.Load($file.FullName)
     $diff = @(Get-RobloxSettingsDifferences $doc)
-    if ($diff.Count) { return "à appliquer ($($diff.Count))" }
-    return 'conformes'
-  } catch { return 'illisible' }
+    if ($diff.Count) { return "to apply ($($diff.Count))" }
+    return 'compliant'
+  } catch { return 'unreadable' }
 }
 
 # Roblox rewrites this file from memory when it exits, so it is written
@@ -461,14 +461,14 @@ function Get-RobloxSettingsState {
 function Set-AccountRobloxSettings {
   param($Account, [switch] $CloseRoblox)
   $file = Get-RobloxSettingsFile $Account.Name
-  if (-not $file) { Write-Log "$($Account.Name) : Roblox n'a jamais été lancé, réglages appliqués plus tard." WARN; return $false }
+  if (-not $file) { Write-Log "$($Account.Name) : Roblox was never started, settings applied later." WARN; return $false }
   $doc = New-Object Xml.XmlDocument
   $doc.PreserveWhitespace = $true
   $doc.Load($file.FullName)
   if (-not @(Get-RobloxSettingsDifferences $doc).Count) { return $true }
   $running = Get-RobloxProcessesInSession $Account
   if ($running.Count) {
-    if (-not $CloseRoblox) { Write-Log "$($Account.Name) : Roblox est ouvert, réglages appliqués à sa prochaine fermeture." WARN; return $false }
+    if (-not $CloseRoblox) { Write-Log "$($Account.Name) : Roblox is open, settings applied when it next closes." WARN; return $false }
     $running | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
     $doc.Load($file.FullName)
@@ -477,7 +477,7 @@ function Set-AccountRobloxSettings {
   if (-not (Test-Path $backup)) { Copy-Item $file.FullName $backup }
   $changed = Set-RobloxSettingsXml $doc
   Save-RobloxSettingsXml $doc $file.FullName
-  Write-Log "$($Account.Name) : $changed réglage(s) Roblox appliqué(s) (graphismes au plus bas, plein écran, sans haptique, réglages Natro)." OK
+  Write-Log "$($Account.Name) : $changed Roblox setting(s) applied (lowest graphics, fullscreen, no haptics, Natro settings)." OK
   return $true
 }
 
@@ -544,7 +544,7 @@ function Register-RobloxProtocols {
     }
     $written += $protocol
   }
-  if ($written.Count) { Write-Log "$($Account.Name) : liens $($written -join ' et ') enregistrés pour Roblox (ils manquaient)." WARN }
+  if ($written.Count) { Write-Log "$($Account.Name) : $($written -join ' and ') links registered for Roblox (they were missing)." WARN }
   return $true
 }
 
@@ -567,7 +567,7 @@ function Close-AccountSession {
   $closed = $false
   foreach ($s in @(Get-BssSessions | Where-Object { $_.User -eq $Account.Name })) {
     if ([BssNative]::Logoff($s.Id)) { $closed = $true }
-    else { Write-Log "$($Account.Name) : impossible de fermer la session $($s.Id)." ERROR }
+    else { Write-Log "$($Account.Name) : cannot close session $($s.Id)." ERROR }
   }
   return $closed
 }

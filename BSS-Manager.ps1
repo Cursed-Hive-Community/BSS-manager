@@ -71,8 +71,8 @@ if (-not $readOnly -and -not (Test-Admin)) {
   try {
     Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arguments | Out-Null
   } catch {
-    Write-Host 'Droits administrateur refusés : action annulée.' -ForegroundColor Red
-    if (-not $Unattended) { [void](Read-Host 'Entrée pour fermer') }
+    Write-Host 'Administrator rights refused: action cancelled.' -ForegroundColor Red
+    if (-not $Unattended) { [void](Read-Host 'Press Enter to close') }
   }
   exit
 }
@@ -90,13 +90,13 @@ try {
     'Restart'      { Restart-AccountMacro $cfg $Account }
     'Update'       { if (-not (Update-RdpWrapper $cfg)) { exit 2 } }
     'UpdateMacros' { if ($Path) { Update-Macros $cfg -Paths @($Path) } else { Update-Macros $cfg $Account } }
-    'SetBranch'    { if (-not ($Path -and $Branch)) { throw '-Path et -Branch sont obligatoires.' }; Set-MacroBranch $cfg $Path $Branch }
+    'SetBranch'    { if (-not ($Path -and $Branch)) { throw '-Path and -Branch are required.' }; Set-MacroBranch $cfg $Path $Branch }
     'RobloxUpdate' { Invoke-RobloxUpdate $cfg $Account }
-    'NewMacro'     { if (-not $Roblox) { throw '-Roblox (nom du compte) est obligatoire.' }; [void](New-MacroFolder $cfg $Roblox $Path) }
+    'NewMacro'     { if (-not $Roblox) { throw '-Roblox (account name) is required.' }; [void](New-MacroFolder $cfg $Roblox $Path) }
     'StatusServer' { Invoke-StatusServer }
     'RobloxSettings' { foreach ($a in @(Select-Accounts $cfg $Account -IncludeDisabled)) { [void](Set-AccountRobloxSettings $a -CloseRoblox) } }
     'OpenRoblox'   { foreach ($a in @(Select-Accounts $cfg $Account -IncludeDisabled)) { Open-RobloxForSignIn $cfg $a } }
-    'AddRoblox'    { if (-not ($Roblox -or $Role)) { throw '-Roblox ou -Role est obligatoire.' }; Add-RobloxAccount $cfg $Roblox $Role $WindowsUser $Path }
+    'AddRoblox'    { if (-not ($Roblox -or $Role)) { throw '-Roblox or -Role is required.' }; Add-RobloxAccount $cfg $Roblox $Role $WindowsUser $Path }
     'Supervise'    { Invoke-Supervisor }
     'Install'      { Install-Manager $cfg }
     'Uninstall'    { Uninstall-Manager }
@@ -105,7 +105,7 @@ try {
   # The one-click window closes by itself, but late enough to be read.
   if ($Action -eq 'Start' -and $Unattended) { Start-Sleep -Seconds 10 }
 } catch {
-  Write-Log "Erreur : $($_.Exception.Message)" ERROR
+  Write-Log "Error: $($_.Exception.Message)" ERROR
   if ($Action -eq 'Gui') { [void][Windows.Forms.MessageBox]::Show($_.Exception.Message, 'BSS Manager', 'OK', 'Error') }
   elseif (-not $Unattended -and $Action -ne 'Menu') { Wait-Enter }
   exit 1

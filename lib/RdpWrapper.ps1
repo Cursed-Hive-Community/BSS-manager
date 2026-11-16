@@ -15,10 +15,10 @@ function Get-TermsrvVersion {
 
 function Get-IniUpdated {
   param([string] $Path)
-  if (-not (Test-Path $Path)) { return '(absent)' }
+  if (-not (Test-Path $Path)) { return '(missing)' }
   $m = [regex]::Match([IO.File]::ReadAllText($Path), '(?m)^Updated=(.+?)\s*$')
   if ($m.Success) { return $m.Groups[1].Value }
-  return '(inconnu)'
+  return '(unknown)'
 }
 
 function Test-IniSupports {
@@ -88,18 +88,18 @@ function Get-RemoteIni {
       $url = '{0}?nocache={1}' -f $Cfg.IniUrl, [DateTime]::UtcNow.Ticks
       Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp -TimeoutSec 60 -Headers @{ 'Cache-Control' = 'no-cache' }
       $text = [IO.File]::ReadAllText($tmp)
-      if ($text -notmatch '(?m)^\[Main\]' -or $text.Length -lt 50000) { throw 'fichier téléchargé invalide' }
+      if ($text -notmatch '(?m)^\[Main\]' -or $text.Length -lt 50000) { throw 'downloaded file is invalid' }
       return $tmp
     } catch {
-      Write-Log "Téléchargement de rdpwrap.ini échoué (essai $i/$tries) : $($_.Exception.Message)" WARN
+      Write-Log "rdpwrap.ini download failed (attempt $i/$tries): $($_.Exception.Message)" WARN
       if ($i -lt $tries) { Start-Sleep -Seconds 10 }
     }
   }
-  throw "Impossible de télécharger rdpwrap.ini depuis $($Cfg.IniUrl)"
+  throw "Cannot download rdpwrap.ini from $($Cfg.IniUrl)"
 }
 
 function Restart-RdpService {
-  Write-Log 'Redémarrage du service Bureau à distance (TermService)...'
+  Write-Log 'Restarting the Remote Desktop service (TermService)...'
   Restart-Service -Name TermService -Force
   Start-Sleep -Seconds 2
   $um = Get-Service UmRdpService -ErrorAction SilentlyContinue
@@ -107,12 +107,12 @@ function Restart-RdpService {
   $port = Get-RdpPort
   for ($i = 0; $i -lt 15; $i++) {
     if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) {
-      Write-Log "Service redémarré, le Bureau à distance écoute sur le port $port." OK
+      Write-Log "Service restarted, Remote Desktop listens on port $port." OK
       return
     }
     Start-Sleep -Seconds 1
   }
-  Write-Log "Le service tourne mais n'écoute pas sur le port $port." ERROR
+  Write-Log "The service runs but does not listen on port $port." ERROR
 }
 
 # Returns $true when RDP Wrapper is (now) usable, $false when the online ini
@@ -123,7 +123,7 @@ function Update-RdpWrapper {
   $ini = Join-Path $dir 'rdpwrap.ini'
   $dll = Join-Path $dir 'rdpwrap.dll'
   if (-not (Test-Path $dll)) {
-    throw "rdpwrap.dll introuvable dans $dir : RDP Wrapper n'est pas installé, ou l'antivirus l'a supprimé."
+    throw "rdpwrap.dll not found in ${dir}: RDP Wrapper is not installed, or the antivirus removed it."
   }
   $version = Get-TermsrvVersion
   Write-Log "termsrv.dll $version, rdpwrap.ini local Updated=$(Get-IniUpdated $ini)"
@@ -132,57 +132,57 @@ function Update-RdpWrapper {
   if ($Script:Bss.Force -or -not (Test-IniSupports $ini $version)) {
     # Only a missing section justifies a download; a wrong line ending is
     # repaired below without touching the network.
-    Write-Log 'Téléchargement du dernier rdpwrap.ini...'
+    Write-Log 'Downloading the latest rdpwrap.ini...'
     $tmp = Get-RemoteIni $Cfg
     if (-not (Test-IniSupports $tmp $version)) {
-      Write-Log "Le rdpwrap.ini en ligne (Updated=$(Get-IniUpdated $tmp)) ne gère pas encore termsrv.dll $version. Réessaie dans quelques jours." ERROR
+      Write-Log "The online rdpwrap.ini (Updated=$(Get-IniUpdated $tmp)) does not support termsrv.dll $version yet. Try again in a few days." ERROR
       return $false
     }
     $crlf = "$tmp.crlf"
     Copy-IniAsCrlf $tmp $crlf
     if ((Test-Path $ini) -and ((Get-FileHash $ini).Hash -eq (Get-FileHash $crlf).Hash)) {
-      Write-Log 'Le rdpwrap.ini local est déjà la dernière version.'
+      Write-Log 'The local rdpwrap.ini is already the latest.'
     } else {
       if (Test-Path $ini) {
         $backup = "$ini.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
         Copy-Item $ini $backup -Force
-        Write-Log "Ancien fichier sauvegardé : $backup"
+        Write-Log "Previous file backed up: $backup"
       }
       Copy-Item $crlf $ini -Force
-      Write-Log "Nouveau rdpwrap.ini installé (Updated=$(Get-IniUpdated $ini))." OK
+      Write-Log "New rdpwrap.ini installed (Updated=$(Get-IniUpdated $ini))." OK
       $changed = $true
       # Five backups are plenty to roll back, and keep the folder bounded.
       Get-ChildItem $dir -Filter 'rdpwrap.ini.bak-*' | Sort-Object LastWriteTime -Descending |
         Select-Object -Skip 5 | Remove-Item -Force -ErrorAction SilentlyContinue
     }
   } else {
-    Write-Log "rdpwrap.ini gère déjà termsrv.dll $version." OK
+    Write-Log "rdpwrap.ini already supports termsrv.dll $version." OK
   }
 
   if (-not (Test-IniCrlf $ini)) {
     $backup = "$ini.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
     Copy-Item $ini $backup -Force
     Copy-IniAsCrlf $backup $ini
-    Write-Log 'rdpwrap.ini avait des fins de ligne Unix (LF) que RDP Wrapper ne lit pas : converti en CRLF.' WARN
+    Write-Log 'rdpwrap.ini had Unix (LF) line endings that RDP Wrapper cannot read: converted to CRLF.' WARN
     $changed = $true
   }
 
   $current = [Environment]::ExpandEnvironmentVariables([string](Get-ItemProperty $Script:TermServiceKey).ServiceDll)
   if ($current -ne $dll) {
     New-ItemProperty -Path $Script:TermServiceKey -Name ServiceDll -Value $dll -PropertyType ExpandString -Force | Out-Null
-    Write-Log "Le service chargeait « $current » : remis sur rdpwrap.dll." WARN
+    Write-Log "The service loaded '$current': set back to rdpwrap.dll." WARN
     $changed = $true
   }
   if ((Get-ItemProperty $Script:TerminalServerKey).fDenyTSConnections -ne 0) {
     Set-ItemProperty $Script:TerminalServerKey -Name fDenyTSConnections -Value 0
-    Write-Log 'Le Bureau à distance était désactivé : réactivé.' WARN
+    Write-Log 'Remote Desktop was disabled: enabled again.' WARN
     $changed = $true
   }
 
   if ($changed -or $Script:Bss.Force) {
     $connections = @(Get-BssSessions | Where-Object { $_.User -and $_.Station -like 'RDP-Tcp#*' })
-    if ($connections.Count -gt 0 -and -not (Confirm-Action "Le redémarrage coupe $($connections.Count) connexion(s) Bureau à distance (les sessions restent ouvertes). Continuer ?")) {
-      Write-Log 'Redémarrage du service reporté : la correction sera active au prochain redémarrage du PC.' WARN
+    if ($connections.Count -gt 0 -and -not (Confirm-Action "The restart drops $($connections.Count) Remote Desktop connection(s) (sessions stay open). Continue?")) {
+      Write-Log 'Service restart postponed: the fix takes effect at the next PC restart.' WARN
       return $true
     }
     Restart-RdpService

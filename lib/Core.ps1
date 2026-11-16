@@ -55,19 +55,19 @@ function Test-Admin {
 }
 
 function Wait-Enter {
-  if (-not $Script:Bss.Unattended) { [void](Read-Host "`nEntrée pour continuer") }
+  if (-not $Script:Bss.Unattended) { [void](Read-Host "`nPress Enter to continue") }
 }
 
 function Confirm-Action {
   param([string] $Question)
   if ($Script:Bss.Unattended -or $Script:Bss.Force) { return $true }
-  return ((Read-Host "$Question (o/n)") -match '^(o|oui|y|yes)$')
+  return ((Read-Host "$Question (y/n)") -match '^(y|yes|o|oui)$')
 }
 
 function Select-Index {
   param([string[]] $Labels, [string] $Prompt)
   for ($i = 0; $i -lt $Labels.Count; $i++) { Write-Host ('  {0}. {1}' -f ($i + 1), $Labels[$i]) }
-  $answer = Read-Host "$Prompt (numéro, vide = annuler)"
+  $answer = Read-Host "$Prompt (number, empty = cancel)"
   $n = 0
   if ([int]::TryParse($answer, [ref]$n) -and $n -ge 1 -and $n -le $Labels.Count) { return ($n - 1) }
   return -1
@@ -88,11 +88,11 @@ function Test-SecureEqual {
 function Read-NewPassword {
   param([string] $For)
   while ($true) {
-    $first = Read-Host "Mot de passe pour $For" -AsSecureString
-    if ($first.Length -eq 0) { Write-Host 'Un mot de passe est obligatoire.' -ForegroundColor Yellow; continue }
-    $second = Read-Host 'Confirme le mot de passe' -AsSecureString
+    $first = Read-Host "Password for $For" -AsSecureString
+    if ($first.Length -eq 0) { Write-Host 'A password is required.' -ForegroundColor Yellow; continue }
+    $second = Read-Host 'Confirm the password' -AsSecureString
     if (Test-SecureEqual $first $second) { return $first }
-    Write-Host 'Les mots de passe ne correspondent pas.' -ForegroundColor Yellow
+    Write-Host 'The passwords do not match.' -ForegroundColor Yellow
   }
 }
 
@@ -185,7 +185,7 @@ function Get-BssConfig {
     $cfg.Accounts = @($cfg.Accounts) + (New-AccountEntry $cfg $name)
   }
   Save-BssConfig $cfg
-  Write-Log "Configuration créée ($(@($cfg.Accounts).Count) compte(s) détecté(s))." OK
+  Write-Log "Configuration created ($(@($cfg.Accounts).Count) account(s) found)." OK
   return $cfg
 }
 
@@ -222,7 +222,7 @@ function Select-Accounts {
     $picked = @()
     foreach ($n in $Names) {
       $match = $all | Where-Object { $_.Name -eq $n } | Select-Object -First 1
-      if ($match) { $picked += $match } else { Write-Log "Compte inconnu dans la configuration : $n" WARN }
+      if ($match) { $picked += $match } else { Write-Log "Unknown account in the configuration: $n" WARN }
     }
     return $picked
   }
@@ -233,8 +233,8 @@ function Select-Accounts {
 function Select-OneAccount {
   param($Cfg)
   $accounts = @($Cfg.Accounts)
-  if (-not $accounts.Count) { Write-Host 'Aucun compte configuré.' -ForegroundColor Yellow; return $null }
-  $i = Select-Index ([string[]]($accounts | ForEach-Object { $_.Name })) 'Compte'
+  if (-not $accounts.Count) { Write-Host 'No account configured.' -ForegroundColor Yellow; return $null }
+  $i = Select-Index ([string[]]($accounts | ForEach-Object { $_.Name })) 'Account'
   if ($i -lt 0) { return $null }
   return $accounts[$i]
 }

@@ -37,7 +37,7 @@ function Get-AutoLogonState {
 function Enable-AutoLogon {
   param([string] $User, [Security.SecureString] $Password)
   if (-not $User) { $User = $env:USERNAME }
-  if (-not $Password -or $Password.Length -eq 0) { throw 'Mot de passe vide.' }
+  if (-not $Password -or $Password.Length -eq 0) { throw 'Empty password.' }
   $user = $User
   $password = $Password
 
@@ -55,8 +55,8 @@ function Enable-AutoLogon {
   Remove-ItemProperty $Script:WinlogonKey -Name AutoLogonCount -ErrorAction SilentlyContinue
   if (-not (Test-Path $Script:PasswordLessKey)) { New-Item -Path $Script:PasswordLessKey -Force | Out-Null }
   Set-ItemProperty $Script:PasswordLessKey -Name DevicePasswordLessBuildVersion -Value 0 -Type DWord
-  Write-Log "Connexion automatique activée pour $user (mot de passe stocké en secret LSA)." OK
-  Write-Log "À vérifier une fois : redémarre le PC, la session doit s'ouvrir sans rien taper." WARN
+  Write-Log "Automatic sign-in enabled for $user (password stored as an LSA secret)." OK
+  Write-Log "Check it once: restart the PC, the session must open without typing anything." WARN
 }
 
 function Disable-AutoLogon {
@@ -69,5 +69,5 @@ function Disable-AutoLogon {
     if ($null -ne $old) { Set-ItemProperty $Script:PasswordLessKey -Name DevicePasswordLessBuildVersion -Value ([int]$old) -Type DWord }
     Remove-Item $previousFile
   }
-  Write-Log 'Connexion automatique désactivée, mot de passe effacé.' OK
+  Write-Log 'Automatic sign-in disabled, password erased.' OK
 }

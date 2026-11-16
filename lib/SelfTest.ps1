@@ -146,9 +146,9 @@ function Invoke-SelfTest {
       ((Get-RobloxSignInProblem '' 'PlayerAlt2' $true) -eq '') -and
         ((Get-RobloxSignInProblem 'PlayerAlt2' 'PlayerAlt2' $true) -eq '') -and
         ((Get-RobloxSignInProblem 'PlayerAlt2' 'PLAYERALT2' $true) -eq '') -and
-        ((Get-RobloxSignInProblem 'PlayerAlt2' 'PlayerAlt4' $true) -like 'mauvais compte*') -and
-        ((Get-RobloxSignInProblem '' '' $false) -eq 'Roblox pas installé dans la session') -and
-        ((Get-RobloxSignInProblem '' '' $true) -like 'connecte-toi à Roblox*')
+        ((Get-RobloxSignInProblem 'PlayerAlt2' 'PlayerAlt4' $true) -like 'wrong Roblox account*') -and
+        ((Get-RobloxSignInProblem '' '' $false) -eq 'Roblox not installed in the session') -and
+        ((Get-RobloxSignInProblem '' '' $true) -like 'sign in to Roblox*')
     }
 
     Add-Check 'A macro named after the role is accepted (GuidingALT2 played by PlayerAlt2)' {
@@ -194,11 +194,11 @@ function Invoke-SelfTest {
     Add-Check 'Roblox2 is not ready while it holds GuidingALT1''s macro' {
       $fake = [pscustomobject]@{ Name = 'Roblox2'; Ip = '127.0.0.3'; MacroPath = 'G:\Macro bee swarm\Natro_Macro_GuidingALT1'; Roblox = 'PlayerAlt4' }
       if (-not [BssNative]::CredExists((Get-CredTarget $fake))) { return $true }
-      (Get-AccountReadiness $fake) -eq 'la macro est celle de GuidingALT1, pas de PlayerAlt4'
+      (Get-AccountReadiness $fake) -eq 'the macro belongs to GuidingALT1, not PlayerAlt4'
     }
 
     Add-Check 'An unknown Windows account is never ready' {
-      (Get-AccountReadiness ([pscustomobject]@{ Name = 'NoSuchUser' + [Guid]::NewGuid().ToString('N').Substring(0, 6); Ip = '127.0.0.250'; MacroPath = 'x'; Roblox = 'x' })) -eq 'compte Windows introuvable'
+      (Get-AccountReadiness ([pscustomobject]@{ Name = 'NoSuchUser' + [Guid]::NewGuid().ToString('N').Substring(0, 6); Ip = '127.0.0.250'; MacroPath = 'x'; Roblox = 'x' })) -eq 'Windows account not found'
     }
 
     Add-Check 'Firewall rules: both AutoHotkey programs, TCP and UDP, inside the macro folder' {
@@ -298,13 +298,13 @@ function Invoke-SelfTest {
       $cfgFake = [pscustomobject]@{ Running = $true; Accounts = @(
           [pscustomobject]@{ Name = 'PlayerAlt2'; Roblox = 'PlayerAlt2'; Role = 'GuidingALT2'; Enabled = $true; Paused = $false; Ip = '127.0.0.4'; MacroPath = 'G:\x' }) }
       $now = Get-Date
-      $sup = [pscustomobject]@{ LastPass = $now.AddSeconds(-30).ToString('o'); Interval = 60; Accounts = [pscustomobject]@{ PlayerAlt2 = [pscustomobject]@{ Session = 'connectée'; Natro = 'tourne'; State = 'ok' } } }
+      $sup = [pscustomobject]@{ LastPass = $now.AddSeconds(-30).ToString('o'); Interval = 60; Accounts = [pscustomobject]@{ PlayerAlt2 = [pscustomobject]@{ Session = 'connected'; Natro = 'running'; State = 'ok' } } }
       $old = [pscustomobject]@{ LastPass = $now.AddMinutes(-10).ToString('o'); Interval = 60; Accounts = $null }
       $fresh = Get-StatusDocument $cfgFake $sup $false $now
       $stale = Get-StatusDocument $cfgFake $old $true $now
       $json = $fresh | ConvertTo-Json -Depth 5
       $fresh.supervisor.alive -and ($fresh.supervisor.ageSec -eq 30) -and -not $stale.supervisor.alive -and $stale.robloxWindow -and
-        ($fresh.accounts[0].natro -eq 'tourne') -and ($fresh.accounts[0].role -eq 'GuidingALT2') -and
+        ($fresh.accounts[0].natro -eq 'running') -and ($fresh.accounts[0].role -eq 'GuidingALT2') -and
         -not ($json -match '127\.0\.0\.4|G:\\\\x|password|Password|Cred') -and [bool]($json | ConvertFrom-Json)
     }
 
@@ -315,8 +315,8 @@ function Invoke-SelfTest {
         ((Get-StatusVerdict $on 'Disabled' $false $false)[0] -eq 'stopped') -and
         ((Get-StatusVerdict $on 'Running' $true $false)[0] -eq 'maintenance') -and
         ((Get-StatusVerdict $on 'Running' $false $true)[0] -eq 'ok') -and
-        ((Get-StatusVerdict $on 'Running' $false $false)[1] -like '*bloqué*') -and
-        ((Get-StatusVerdict $on 'Ready' $false $false)[1] -like '*planté*')
+        ((Get-StatusVerdict $on 'Running' $false $false)[1] -like '*hung*') -and
+        ((Get-StatusVerdict $on 'Ready' $false $false)[1] -like '*crashed*')
     }
 
     Add-Check 'Local account: moved into the owner''s session, source excluded, only one, removable' {
@@ -338,7 +338,7 @@ function Invoke-SelfTest {
     Add-Check 'The owner''s password is never set, whatever the button' {
       $local = [pscustomobject]@{ Name = $env:USERNAME; Local = $true; Ip = '' }
       $refused = $false
-      try { Set-AccountCommonPassword $local } catch { $refused = $_.Exception.Message -like '*propre compte*' }
+      try { Set-AccountCommonPassword $local } catch { $refused = $_.Exception.Message -like '*own Windows account*' }
       $refused
     }
 
@@ -365,6 +365,6 @@ function Invoke-SelfTest {
 
   $results | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
   $failed = @($results | Where-Object { $_.Result -ne 'PASS' }).Count
-  if ($failed) { Write-Log "$failed vérification(s) en échec." ERROR } else { Write-Log "$($results.Count) vérifications réussies." OK }
+  if ($failed) { Write-Log "$failed check(s) failed." ERROR } else { Write-Log "$($results.Count) checks passed." OK }
   return $failed
 }

@@ -22,7 +22,7 @@ function Invoke-Supervisor {
   $created = $false
   $mutex = New-Object Threading.Mutex($true, $Script:SupervisorMutexName, [ref]$created)
   if (-not $created) {
-    Write-Log 'Un superviseur tourne déjà : cette copie s''arrête.' WARN
+    Write-Log 'A supervisor is already running: this copy stops.' WARN
     return
   }
   try {
@@ -34,7 +34,7 @@ function Invoke-Supervisor {
     }
     $cfg = Get-BssConfig
     foreach ($a in @($cfg.Accounts)) { Sync-NatroTask $cfg $a }
-    Write-Log "Superviseur démarré (PID $PID, vérification toutes les $($cfg.SupervisorIntervalSec) s)." OK
+    Write-Log "Supervisor started (PID $PID, checking every $($cfg.SupervisorIntervalSec) s)." OK
     while ($true) {
       try {
         # Re-read every pass: the menu may have paused or added an account.
@@ -42,7 +42,7 @@ function Invoke-Supervisor {
         Invoke-SupervisorPass $cfg $memory
       } catch {
         # One failing pass must never end supervision.
-        Write-Log "Superviseur : $($_.Exception.Message)" ERROR
+        Write-Log "Supervisor: $($_.Exception.Message)" ERROR
       }
       Start-Sleep -Seconds ([Math]::Max(15, [int]$cfg.SupervisorIntervalSec))
     }
@@ -72,28 +72,28 @@ function Invoke-SupervisorPass {
   }
 
   # The status page is part of what keeps running while the PC is alive.
-  try { Start-StatusServerIfNeeded $Cfg } catch { Write-Log "Page d'état : $($_.Exception.Message)" WARN }
+  try { Start-StatusServerIfNeeded $Cfg } catch { Write-Log "Status page: $($_.Exception.Message)" WARN }
 
   $status.Running = [bool]$Cfg.Running
   # Stopped by the owner: nothing to look after, not even RDP Wrapper.
   if (-not $Cfg.Running) {
-    $status.Wrapper = 'système arrêté'
+    $status.Wrapper = 'system stopped'
     Write-FileAtomic $Script:Bss.StatusFile ($status | ConvertTo-Json -Depth 4)
     return
   }
 
   $wrapper = Get-WrapperState $Cfg
-  $status.Wrapper = $(if ($wrapper.Healthy) { 'ok' } else { 'à réparer' })
+  $status.Wrapper = $(if ($wrapper.Healthy) { 'ok' } else { 'needs repair' })
   if (-not $wrapper.Healthy -and (Get-SecondsSince $Memory.LastWrapperAttempt) -ge $Script:WrapperRetryMinutes * 60) {
     $Memory.LastWrapperAttempt = Get-Date
-    Write-Log "Superviseur : RDP Wrapper n'est pas utilisable (termsrv $($wrapper.TermsrvVersion)), réparation..." WARN
+    Write-Log "Supervisor: RDP Wrapper is not usable (termsrv $($wrapper.TermsrvVersion)), repairing..." WARN
     if ($wrapper.IniSupports -and $wrapper.IniCrlf -and $wrapper.ServiceDllOk) { Restart-RdpService } else { [void](Update-RdpWrapper $Cfg) }
   }
 
   # Another process holds a Roblox window (every Roblox closed on purpose):
   # restarting anything now would break its install or update.
   if (Test-RobloxWindowOpen) {
-    $status.Wrapper = "$($status.Wrapper), mise à jour de Roblox en cours"
+    $status.Wrapper = "$($status.Wrapper), Roblox update in progress"
     Write-FileAtomic $Script:Bss.StatusFile ($status | ConvertTo-Json -Depth 4)
     return
   }
@@ -111,11 +111,11 @@ function Invoke-SupervisorPass {
   if ($needs.Count) {
     if ((Get-SecondsSince $Memory.LastRobloxWindow) -ge $Script:RobloxAutoMinSeconds) {
       if (Test-OwnerRobloxBlocking $Cfg) {
-        $status.Wrapper = "$($status.Wrapper), mise à jour de Roblox en attente : ferme ton Roblox"
+        $status.Wrapper = "$($status.Wrapper), Roblox update waiting: close your Roblox"
       } else {
         $Memory.LastRobloxWindow = Get-Date
-        Write-Log "Superviseur : Roblox à réparer pour $($needs -join ', ')." WARN
-        try { Invoke-RobloxUpdate $Cfg -Reason 'mise à jour automatique de Roblox' } catch { Write-Log "Superviseur : mise à jour de Roblox impossible, $($_.Exception.Message)" ERROR }
+        Write-Log "Supervisor: Roblox to repair for $($needs -join ', ')." WARN
+        try { Invoke-RobloxUpdate $Cfg -Reason 'automatic Roblox update' } catch { Write-Log "Supervisor: Roblox update failed, $($_.Exception.Message)" ERROR }
         return
       }
     }
@@ -136,31 +136,31 @@ function Invoke-SupervisorPass {
     $entry = [ordered]@{ Session = (Format-SessionState $session); Natro = ''; State = ''; LastAction = $m.LastAction; LastActionAt = $(if ($m.LastActionAt) { $m.LastActionAt.ToString('o') } else { '' }) }
     $status.Accounts[$account.Name] = $entry
 
-    if ($account.Paused) { $entry.State = 'en pause'; continue }
+    if ($account.Paused) { $entry.State = 'paused'; continue }
     # Unattended work needs a saved password and a macro; anything less would
     # only leave a password prompt or an idle session on screen.
     $missing = Get-AccountReadiness $account
-    if ($missing) { $entry.State = "pas prêt : $missing"; continue }
+    if ($missing) { $entry.State = "not ready: $missing"; continue }
     # The account just became ready (its owner signed in to Roblox): give
     # it the task that starts Natro.
     if (-not (Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-NatroTaskName $account) -ErrorAction SilentlyContinue)) {
       Sync-NatroTask $Cfg $account
     }
-    if (Test-MacroUpdating $account.MacroPath) { $entry.State = 'mise à jour en cours'; continue }
+    if (Test-MacroUpdating $account.MacroPath) { $entry.State = 'macro update in progress'; continue }
 
     if (-not (Test-SessionConnected $session)) {
       # The owner's session is the owner's to open (or automatic sign-in's).
-      if ($account.Local) { $entry.State = 'ta session n''est pas connectée'; continue }
-      $entry.State = 'session à rouvrir'
-      if (Get-AccountClient $account) { $entry.State = 'connexion en cours'; continue }
+      if ($account.Local) { $entry.State = 'your session is not connected'; continue }
+      $entry.State = 'session to reopen'
+      if (Get-AccountClient $account) { $entry.State = 'connecting'; continue }
       # One session per pass: a Roblox start is heavy, and staggering them is
       # what DelayBetweenSessionsSec does for the manual launch.
       if (-not $openedThisPass -and (Get-SecondsSince $m.LastSessionLaunch) -ge $grace) {
-        Write-Log "Superviseur : $($account.Name) - session $(Format-SessionState $session), ouverture." WARN
+        Write-Log "Supervisor: $($account.Name) - session $(Format-SessionState $session), opening." WARN
         if (Open-AccountSession $Cfg $account) {
           $m.LastSessionLaunch = Get-Date
           $m.NatroMissingSince = $null
-          $m.LastAction = 'session rouverte'; $m.LastActionAt = Get-Date
+          $m.LastAction = 'session reopened'; $m.LastActionAt = Get-Date
           $openedThisPass = $true
         }
       }
@@ -168,28 +168,28 @@ function Invoke-SupervisorPass {
     }
 
     $running = Test-NatroRunning $account $session.Id
-    $entry.Natro = $(if ($running) { 'tourne' } else { 'arrêté' })
+    $entry.Natro = $(if ($running) { 'running' } else { 'stopped' })
 
     if ($running -and ($restartRequests -contains $account.Name) -and (Get-SecondsSince $m.LastNatroStart) -ge $grace) {
-      Write-Log "Superviseur : $($account.Name) - redémarrage demandé par la boîte de réception." WARN
+      Write-Log "Supervisor: $($account.Name) - restart requested through the inbox." WARN
       Stop-NatroProcesses $account.MacroPath
       [void](Start-Natro $Cfg $account)
       $m.LastNatroStart = Get-Date
-      $m.LastAction = 'macro redémarrée (demande)'; $m.LastActionAt = Get-Date
-      $entry.State = 'redémarrage'
+      $m.LastAction = 'macro restarted (request)'; $m.LastActionAt = Get-Date
+      $entry.State = 'restarting'
       continue
     }
 
     if ($running) { $m.NatroMissingSince = $null; $entry.State = 'ok'; continue }
     if (-not $m.NatroMissingSince) { $m.NatroMissingSince = Get-Date }
-    $entry.State = "Natro absent depuis $([int](Get-SecondsSince $m.NatroMissingSince)) s"
+    $entry.State = "Natro missing for $([int](Get-SecondsSince $m.NatroMissingSince)) s"
     if ((Get-SecondsSince $m.NatroMissingSince) -ge $grace -and
         (Get-SecondsSince $m.LastNatroStart) -ge $grace -and
         (Get-SecondsSince $m.LastSessionLaunch) -ge $grace) {
-      Write-Log "Superviseur : $($account.Name) - Natro ne tourne plus, relance." WARN
+      Write-Log "Supervisor: $($account.Name) - Natro no longer runs, restarting." WARN
       [void](Start-Natro $Cfg $account)
       $m.LastNatroStart = Get-Date
-      $m.LastAction = 'macro relancée'; $m.LastActionAt = Get-Date
+      $m.LastAction = 'macro restarted'; $m.LastActionAt = Get-Date
     }
   }
 
@@ -209,18 +209,18 @@ function Read-InboxRequests {
   $files = Get-ChildItem $Dir -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -First $Script:InboxMaxFiles
   foreach ($file in $files) {
     try {
-      if ($file.Extension -ne '.json') { throw 'extension refusée' }
-      if ($file.Length -gt $Script:InboxMaxBytes) { throw 'fichier trop gros' }
+      if ($file.Extension -ne '.json') { throw 'extension refused' }
+      if ($file.Length -gt $Script:InboxMaxBytes) { throw 'file too large' }
       $request = [IO.File]::ReadAllText($file.FullName) | ConvertFrom-Json
-      if ($request.action -ne 'restart') { throw "action inconnue « $($request.action) »" }
+      if ($request.action -ne 'restart') { throw "unknown action '$($request.action)'" }
       $target = $Cfg.Accounts | Where-Object {
         ($request.account -and $_.Name -eq [string]$request.account) -or
         ($request.macro -and $_.MacroPath -and (Split-Path $_.MacroPath -Leaf) -eq [string]$request.macro)
       } | Select-Object -First 1
-      if (-not $target) { throw 'compte ou macro inconnu' }
+      if (-not $target) { throw 'unknown account or macro' }
       $names += $target.Name
     } catch {
-      Write-Log "Boîte de réception : $($file.Name) ignoré ($($_.Exception.Message))." WARN
+      Write-Log "Inbox: $($file.Name) ignored ($($_.Exception.Message))." WARN
     } finally {
       Remove-Item $file.FullName -Force -ErrorAction SilentlyContinue
     }

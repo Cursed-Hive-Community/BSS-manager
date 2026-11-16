@@ -9,11 +9,11 @@ Versioning[^semver].
 ## Added
 
 - Start / Stop for the whole system, kept across reboots; accounts are
-  *Actif* or not.
+  *Active* or not.
 - Read-only status page on the local network (`/status`, port 47700) with
   a verdict telling the owner's stop, maintenance, health and a crashed or
   hung supervisor apart.
-- *Nouvelle macro...*: creates `Natro_Macro_<name>` like the others.
+- *New macro...*: creates `Natro_Macro_<name>` like the others.
 - A local account: one account, chosen from a list, runs in the owner's own
   session instead of an RDP session, with guards so the owner's session,
   password, Windows account and Edge are never touched.
@@ -22,7 +22,7 @@ Versioning[^semver].
   conversion, RDP Wrapper, supervisor, automatic sign-in, settings and log.
 - Command-line actions `SetBranch`, `ConvertMacro` and
   `UpdateMacros -Path`, used by the window for its long actions.
-- An *État* column saying what an account still lacks to run unattended.
+- A *State* column saying what an account still lacks to run unattended.
 - Roblox accounts at the centre: each one gets its own Windows account,
   macro folder and session. The assistant suggests them from folder names
   and prepares them in a queue: Windows account with a generated password,
@@ -39,14 +39,14 @@ Versioning[^semver].
 
 - No Windows privacy questions for new macro accounts, and their
   per-account privacy choices set to off.
-- *Ouvrir Roblox*: opens the Roblox app in an account's session to sign in;
+- *Open Roblox*: opens the Roblox app in an account's session to sign in;
   the preparation does it after installing Roblox. It also opens the
   roblox.com login page in Edge, which Natro's browser fallback needs.
 - Coordinated Roblox installs and updates ("Roblox window"): every Roblox
   closed, accounts updated one at a time, the macros that ran restarted.
   Opened automatically by the supervisor when an install or update
   failed or roblox:// is missing, by the preparation of an account, and by
-  *Mettre à jour Roblox*.
+  *Update Roblox*.
 - Roblox settings in each macro account: what Natro checks, plus
   fullscreen on, haptics off and graphics manual at the lowest level;
   applied before every Natro start, with a button and a column.
@@ -57,6 +57,11 @@ Versioning[^semver].
 
 ## Changed
 
+- The application is in English: window, text menu, log, account states
+  and the status page's reasons and per-account values (`natro` is
+  `running` or `stopped`). The verdicts (`stopped`, `maintenance`, `ok`,
+  `degraded`) did not change. The `_Anciennes` archive folder keeps its
+  name, since it exists on disk.
 - The text menu moved to `-Action Menu`.
 - The assistant leaves the Roblox account empty (learnt at the first
   sign-in): a role prefilled there blocked GuidingALT1's macro.
@@ -73,10 +78,12 @@ Versioning[^semver].
 
 ## Fixed
 
+- Stopping the local account no longer logs "session closed": it says
+  Natro and Roblox stopped and the owner's session stays open.
 - `roblox://` links are registered for a macro account when missing or
   stale (Windows answered "get an app to open this 'roblox' link" for
   PlayerAlt3 after a reinstall), with the installer's own keys, and a Roblox
-  started less than 3 minutes ago is no longer stopped by *Ouvrir Roblox*.
+  started less than 3 minutes ago is no longer stopped by *Open Roblox*.
 - The Roblox installer is waited for until it ends; stopping when its first
   file appeared could leave an invisible Roblox behind.
 - `rdpwrap.ini` is always installed with CRLF line endings, and an installed
