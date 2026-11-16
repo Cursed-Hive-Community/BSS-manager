@@ -65,9 +65,10 @@ Parsed and loaded, but nobody has run these yet:
       roblox.com without asking, in a macro account
 - [ ] Natro's browser fallback (every fifth reconnect attempt) joins the
       private server once the account is signed in on roblox.com
-- [ ] `roblox://` registered for PlayerAlt3 fixes "get an app to open this
-      link" (keys proven identical to the installer's in the owner's
-      account; cause, a Roblox stopped right after install, not proven)
+- [ ] Natro in PlayerAlt3 shows "Web Version" and joins through roblox://
+      after the registration (keys proven absent before and present after;
+      why the installer left them out, a Roblox stopped right after
+      install, not proven)
 - [ ] Roblox settings written in a macro account and kept after Natro
       reopens Roblox (tested on a copy of the owner's real file only: 6
       values changed, Natro's own checks find nothing left)
