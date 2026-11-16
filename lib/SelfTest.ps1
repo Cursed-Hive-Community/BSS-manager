@@ -121,14 +121,14 @@ function Invoke-SelfTest {
 
     Add-Check 'Roblox names guessed from the owner''s folder names' {
       $cases = [ordered]@{
-        'Natro_Macro_PlayerAlt4'             = 'PlayerAlt4'
+        'Natro_Macro_PlayerAlt4'               = 'PlayerAlt4'
         'Natro_Macro_v1.0.1 Player25bee - Red' = 'Player25bee'
         'Natro Macro v1.0.0.3 Player - Blue'   = 'Player'
         'Natro_Macro_v1.0.1 BlueBeePlayer'     = 'BlueBeePlayer'
-        'Natro_Macro_v1.0.1 PlayerAlt3'            = 'PlayerAlt3'
-        'Natro Macro v1.0.0.2 - Copie'           = $null
-        'Natro_Macro_v1.0'                       = $null
-        'Natro_Macro_v1.0.0.1a'                  = $null
+        'Natro_Macro_v1.0.1 PlayerAlt3'        = 'PlayerAlt3'
+        'Natro Macro v1.0.0.2 - Copie'         = $null
+        'Natro_Macro_v1.0'                     = $null
+        'Natro_Macro_v1.0.0.1a'                = $null
       }
       @($cases.Keys | Where-Object { (Get-RobloxNameGuess $_) -ne $cases[$_] }).Count -eq 0
     }
