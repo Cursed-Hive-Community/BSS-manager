@@ -33,21 +33,30 @@ by itself after a crash.
 # Installation
 
 1. Put this folder at `C:\BSS-Manager`. Scheduled tasks point at it.
-2. Double-click `BSS-Manager.bat` and accept the administrator prompt.
-3. `5. Comptes et macros`, then `1. Associer une macro à un compte` for each
-   account, and `8. Mot de passe d'un compte` to store each password.
-4. `8. Installation`. It restricts the folder to administrators, registers the
-   supervisor and the one-click task, and creates two desktop shortcuts.
-5. Optionally `7. Connexion automatique de Windows`.
+2. Double-click `BSS-Manager.bat` and accept the administrator prompt: the
+   window opens.
+3. Tab *Comptes*: for each account, *Associer une macro...* and
+   *Mot de passe...*. The *État* column says what is still missing.
+4. Tab *Réglages*, *Installer / réparer*. It restricts the folder to
+   administrators, registers the supervisor and the one-click task, and
+   creates two desktop shortcuts.
+5. Optionally *Connexion automatique de Windows*, *Activer...*.
 
 # Daily use
 
 - **BSS - Tout lancer** on the desktop: RDP Wrapper check, macro updates,
   sessions, macros. No administrator prompt.
-- **BSS Manager** on the desktop: the menu.
-- To configure a macro by hand, pause its account first
-  (`5. Comptes et macros`, `4. Pause`), or the supervisor restarts what you
-  close.
+- **BSS Manager** on the desktop: the window. Its tabs:
+  - *Comptes*: live state, start, stop, restart, pause, passwords, macros;
+  - *Macros*: every Natro folder found, branch, update, conversion;
+  - *Réglages*: RDP Wrapper, supervisor, automatic sign-in, settings,
+    installation;
+  - *Journal*: the log, live.
+- Long actions run in the background; the window shows them in *Journal*
+  and in its status bar, one at a time.
+- To configure a macro by hand, pause its account first, or the supervisor
+  restarts what you close.
+- The text menu is still there: `BSS-Manager.bat -Action Menu`.
 
 Command line, from an administrator PowerShell:
 
@@ -56,6 +65,8 @@ Command line, from an administrator PowerShell:
 .\BSS-Manager.ps1 -Action Stop -Account Roblox1    # pause and close
 .\BSS-Manager.ps1 -Action Restart -Account Roblox1 # restart one macro
 .\BSS-Manager.ps1 -Action UpdateMacros             # update and restart
+.\BSS-Manager.ps1 -Action SetBranch -Path <dir> -Branch main
+.\BSS-Manager.ps1 -Action ConvertMacro -Path <dir> # old release -> fork
 .\BSS-Manager.ps1 -Action Update -Force            # re-fetch rdpwrap.ini
 .\BSS-Manager.ps1 -Action Status                   # no admin needed
 .\BSS-Manager.ps1 -Action SelfTest                 # no admin needed
@@ -109,10 +120,19 @@ program, such as the fork's fleet, may drop a JSON file in `inbox\`:
 The supervisor reads at most 20 files per pass, deletes each one, and refuses
 any other action, an unknown account or a file over 4 KB.
 
+# Remote Desktop notes
+
+- `rdpwrap.ini` must use CRLF line endings: rdpwrap.dll reads no section
+  from an LF file, and Windows then refuses any second session with "all
+  connections are in use". BSS Manager converts it and flags LF as broken.
+- Sessions open with `mstsc /v:`, not with an `.rdp` file: Windows holds
+  every unsigned `.rdp` file behind an "unknown publisher" warning.
+
 # Security
 
 - The folder is writable by administrators only, since tasks run it with
-  administrator rights.
+  administrator rights. A write right added by hand for development is
+  removed by the next *Installer / réparer*.
 - Account passwords live in Credential Manager; the auto-logon password is an
   LSA secret, as Sysinternals Autologon stores it[^autologon]. Neither is
   written to a file or a log.
@@ -123,7 +143,7 @@ any other action, an unknown account or a file over 4 KB.
 
 | Path | Role |
 |---|---|
-| `BSS-Manager.ps1` | entry point, menu and command line |
+| `BSS-Manager.ps1` | entry point: window, menu and command line |
 | `lib\` | one module per concern |
 | `config.json` | wanted state, written by the menu |
 | `state\supervisor.json` | what the supervisor saw and did |

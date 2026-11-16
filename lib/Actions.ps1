@@ -83,14 +83,113 @@ function Restart-AccountMacro {
 }
 
 # ---------------------------------------------------------------------------
+# Account edits: the menu and the window ask the questions, these act.
+# Callers pass a configuration they have just read, so nothing a running
+# action wrote in between is lost.
+# ---------------------------------------------------------------------------
+
+function Get-AccountByName {
+  param($Cfg, [string] $Name)
+  $a = $Cfg.Accounts | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
+  if (-not $a) { throw "Compte inconnu : $Name" }
+  return $a
+}
+
+function New-MacroAccount {
+  param($Cfg, [string] $Name, [Security.SecureString] $Password)
+  if ($Name -notmatch '^[A-Za-z0-9_-]{1,20}$') { throw 'Nom invalide (lettres, chiffres, - et _, 20 caractères max).' }
+  if (Get-LocalUser -Name $Name -ErrorAction SilentlyContinue) { throw 'Ce compte Windows existe déjà : ajoute-le comme compte existant.' }
+  if (-not $Password -or $Password.Length -eq 0) { throw 'Un mot de passe est obligatoire pour le Bureau à distance.' }
+  New-LocalUser -Name $Name -Password $Password -PasswordNeverExpires -AccountNeverExpires -Description 'Bee Swarm macro account (BSS Manager)' | Out-Null
+  Add-ToRdpGroups $Name
+  $account = New-AccountEntry $Cfg $Name
+  Set-AccountCredential $account $Password
+  $Cfg.Accounts = @($Cfg.Accounts) + $account
+  Save-BssConfig $Cfg
+  Write-Log "Compte $Name créé (adresse $($account.Ip), mot de passe enregistré). Ouvre sa session une fois pour installer Roblox, puis associe-lui une macro." OK
+  return $account
+}
+
+function Get-AddableWindowsAccounts {
+  param($Cfg)
+  $known = @($Cfg.Accounts | ForEach-Object { $_.Name })
+  return @(Get-LocalUser | Where-Object { $_.Enabled -and $_.Name -ne $env:USERNAME -and $known -notcontains $_.Name } | ForEach-Object { $_.Name })
+}
+
+function Add-ExistingMacroAccount {
+  param($Cfg, [string] $Name, [Security.SecureString] $Password)
+  if ((Get-AddableWindowsAccounts $Cfg) -notcontains $Name) { throw "$Name n'est pas un compte Windows ajoutable." }
+  Add-ToRdpGroups $Name
+  $account = New-AccountEntry $Cfg $Name
+  if ($Password -and $Password.Length) { Set-AccountCredential $account $Password }
+  $Cfg.Accounts = @($Cfg.Accounts) + $account
+  Save-BssConfig $Cfg
+  Write-Log "$Name ajouté (adresse $($account.Ip))." OK
+  return $account
+}
+
+function Set-AccountMacroPath {
+  param($Cfg, [string] $Name, [string] $Path)
+  $a = Get-AccountByName $Cfg $Name
+  if ($Path -and -not (Test-NatroFolder $Path)) { throw "Pas une macro Natro : $Path" }
+  $a.MacroPath = $Path
+  Save-BssConfig $Cfg
+  Sync-NatroTask $Cfg $a
+  Write-Log "$Name : macro = $(if ($Path) { $Path } else { '(aucune)' })." OK
+}
+
+function Set-AccountPasswordValue {
+  param($Cfg, [string] $Name, [Security.SecureString] $Password, [bool] $ChangeWindows)
+  $a = Get-AccountByName $Cfg $Name
+  if (-not $Password -or $Password.Length -eq 0) { throw 'Mot de passe vide.' }
+  if ($ChangeWindows) {
+    Set-LocalUser -Name $Name -Password $Password
+    Write-Log "Mot de passe Windows de $Name changé." OK
+  }
+  Set-AccountCredential $a $Password
+  Write-Log "Mot de passe de $Name enregistré pour l'ouverture automatique de sa session." OK
+}
+
+function Set-AccountFlag {
+  param($Cfg, [string] $Name, [ValidateSet('Paused', 'Enabled')] [string] $Flag, [bool] $Value)
+  $a = Get-AccountByName $Cfg $Name
+  $a.$Flag = $Value
+  Save-BssConfig $Cfg
+  if ($Flag -eq 'Enabled') { Sync-NatroTask $Cfg $a }
+  $text = switch ($Flag) {
+    'Paused' { if ($Value) { 'en pause : le superviseur ne relance plus rien (la session reste ouverte)' } else { 'n''est plus en pause' } }
+    'Enabled' { if ($Value) { 'inclus dans « Tout lancer » et la supervision' } else { 'exclu de « Tout lancer » et de la supervision' } }
+  }
+  Write-Log "$Name $text." OK
+}
+
+function Remove-ManagedAccount {
+  param($Cfg, [string] $Name, [bool] $DeleteWindowsAccount)
+  $a = Get-AccountByName $Cfg $Name
+  [void](Close-AccountSession $a)
+  Unregister-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-NatroTaskName $a) -Confirm:$false -ErrorAction SilentlyContinue
+  [BssNative]::DeleteCred((Get-CredTarget $a))
+  $Cfg.Accounts = @($Cfg.Accounts | Where-Object { $_.Name -ne $Name })
+  Save-BssConfig $Cfg
+  Write-Log "$Name retiré de BSS Manager." OK
+  if ($DeleteWindowsAccount -and (Get-LocalUser -Name $Name -ErrorAction SilentlyContinue)) {
+    Remove-LocalUser -Name $Name
+    Write-Log "Compte Windows $Name supprimé (le dossier C:\Users\$Name reste sur le disque)." OK
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Macro updates
 # ---------------------------------------------------------------------------
 
-# Updates the macros of the given accounts (or every Cursed folder with
-# -AllFolders), then restarts the ones whose account is running.
+# Updates the macros of the given accounts, the given folders (-Paths) or
+# every Cursed folder (-AllFolders), then restarts the ones whose account is
+# running.
 function Update-Macros {
-  param($Cfg, [string[]] $Names, [switch] $AllFolders)
-  if ($AllFolders) {
+  param($Cfg, [string[]] $Names, [switch] $AllFolders, [string[]] $Paths)
+  if ($Paths) {
+    $paths = @($Paths)
+  } elseif ($AllFolders) {
     $paths = @(Find-Macros $Cfg | Where-Object { $_.IsGit -and $_.HasTools } | ForEach-Object { $_.Path })
   } else {
     $paths = @(Select-Accounts $Cfg $Names -IncludeDisabled | Where-Object { $_.MacroPath } | ForEach-Object { $_.MacroPath } | Sort-Object -Unique)
@@ -115,9 +214,10 @@ function Update-Macros {
 function Get-SupervisorTaskName { return 'Supervisor' }
 function Get-StartAllTaskName { return 'Start-All' }
 
+# A disabled supervisor stays off: disabling is the owner's decision.
 function Start-SupervisorTask {
   $task = Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-SupervisorTaskName) -ErrorAction SilentlyContinue
-  if ($task -and $task.State -ne 'Running') { Start-ScheduledTask -InputObject $task; Write-Log 'Superviseur démarré.' OK }
+  if ($task -and $task.State -eq 'Ready') { Start-ScheduledTask -InputObject $task; Write-Log 'Superviseur démarré.' OK }
 }
 
 function New-ManagerTaskAction {
@@ -212,6 +312,56 @@ function Uninstall-Manager {
 # Status
 # ---------------------------------------------------------------------------
 
+# One row per account, shared by the text status and the window.
+function Get-AccountRows {
+  param($Cfg, $Supervisor)
+  $sessions = Get-BssSessions
+  $processes = Get-AutoHotkeyProcesses
+  foreach ($a in @($Cfg.Accounts)) {
+    $session = Get-AccountSession $a $sessions
+    $macro = $null
+    if (Test-NatroFolder $a.MacroPath) { $macro = Get-MacroInfo $Cfg $a.MacroPath }
+    # What is missing comes first; the supervisor's view only while it runs,
+    # since a stopped supervisor leaves a stale file behind.
+    $state = Get-AccountReadiness $a
+    if ($state) { $state = "pas prêt : $state" }
+    elseif ($Supervisor -and $Supervisor.Alive -and $Supervisor.Accounts.PSObject.Properties.Name -contains $a.Name) { $state = $Supervisor.Accounts.($a.Name).State }
+    [pscustomobject]@{
+      Compte      = $a.Name
+      Inclus      = $(if ($a.Enabled) { 'oui' } else { 'non' })
+      Pause       = $(if ($a.Paused) { 'oui' } else { '' })
+      Adresse     = $a.Ip
+      MotDePasse  = $(if ([BssNative]::CredExists((Get-CredTarget $a))) { 'enregistré' } else { 'non' })
+      Macro       = $(if ($macro) { $macro.Name } elseif ($a.MacroPath) { 'INTROUVABLE' } else { '(aucune)' })
+      Version     = $(if ($macro) { $macro.Version } else { '' })
+      Branche     = $(if ($macro -and $macro.IsGit) { $macro.Branch } elseif ($macro) { 'ancienne' } else { '' })
+      Session     = (Format-SessionState $session)
+      Natro       = $(if ($session -and $a.MacroPath -and (Test-NatroRunning $a $session.Id $processes)) { 'tourne' } elseif ($session) { 'arrêté' } else { '' })
+      'État'      = $state
+    }
+  }
+}
+
+function Get-SupervisorTask {
+  return (Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-SupervisorTaskName) -ErrorAction SilentlyContinue)
+}
+
+# Enabled means: starts at every sign-in and runs now.
+function Set-SupervisorEnabled {
+  param([bool] $Enabled)
+  $task = Get-SupervisorTask
+  if (-not $task) { Write-Log 'Superviseur pas installé : lance d''abord l''installation.' WARN; return }
+  if ($Enabled) {
+    Enable-ScheduledTask -InputObject $task | Out-Null
+    Start-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-SupervisorTaskName)
+    Write-Log 'Superviseur activé et démarré.' OK
+  } else {
+    Stop-ScheduledTask -InputObject $task
+    Disable-ScheduledTask -InputObject $task | Out-Null
+    Write-Log 'Superviseur arrêté et désactivé.' OK
+  }
+}
+
 function Show-Status {
   param($Cfg)
   $w = Get-WrapperState $Cfg
@@ -230,27 +380,7 @@ function Show-Status {
   else { Write-Host "ARRÊTÉ : dernière vérification il y a $($sup.AgeSec) s." -ForegroundColor Red }
 
   Write-Host "`n=== Comptes ===" -ForegroundColor Cyan
-  $sessions = Get-BssSessions
-  $rows = foreach ($a in @($Cfg.Accounts)) {
-    $session = Get-AccountSession $a $sessions
-    $macro = $null
-    if (Test-NatroFolder $a.MacroPath) { $macro = Get-MacroInfo $Cfg $a.MacroPath }
-    $supEntry = $null
-    if ($sup -and $sup.Accounts.PSObject.Properties.Name -contains $a.Name) { $supEntry = $sup.Accounts.($a.Name) }
-    [pscustomobject]@{
-      Compte     = $a.Name
-      Inclus     = $(if ($a.Enabled) { 'oui' } else { 'non' })
-      Pause      = $(if ($a.Paused) { 'oui' } else { '' })
-      Adresse    = $a.Ip
-      MotDePasse = $(if ([BssNative]::CredExists((Get-CredTarget $a))) { 'enregistré' } else { 'non' })
-      Macro      = $(if ($macro) { $macro.Name } elseif ($a.MacroPath) { 'INTROUVABLE' } else { '(aucune)' })
-      Version    = $(if ($macro) { $macro.Version } else { '' })
-      Branche    = $(if ($macro -and $macro.IsGit) { $macro.Branch } elseif ($macro) { 'ancienne' } else { '' })
-      Session    = (Format-SessionState $session)
-      Natro      = $(if ($session -and $a.MacroPath -and (Test-NatroRunning $a $session.Id)) { 'tourne' } elseif ($session) { 'arrêté' } else { '' })
-      Superviseur = $(if ($supEntry) { $supEntry.State } else { '' })
-    }
-  }
+  $rows = Get-AccountRows $Cfg $sup
   if ($rows) { $rows | Format-Table -AutoSize | Out-String -Width 200 | Write-Host } else { Write-Host 'Aucun compte configuré.' -ForegroundColor Yellow }
 
   $auto = Get-AutoLogonState

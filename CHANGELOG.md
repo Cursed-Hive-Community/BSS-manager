@@ -6,6 +6,19 @@ Versioning[^semver].
 
 # [Unreleased]
 
+## Added
+
+- A window (WinForms), opened by default: live account table, start, stop,
+  restart, pause, passwords, macro assignment, branches, updates,
+  conversion, RDP Wrapper, supervisor, automatic sign-in, settings and log.
+- Command-line actions `SetBranch`, `ConvertMacro` and
+  `UpdateMacros -Path`, used by the window for its long actions.
+- An *État* column saying what an account still lacks to run unattended.
+
+## Changed
+
+- The text menu moved to `-Action Menu`.
+
 ## Fixed
 
 - `rdpwrap.ini` is always installed with CRLF line endings, and an installed

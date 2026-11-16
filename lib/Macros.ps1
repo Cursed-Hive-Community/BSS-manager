@@ -112,21 +112,27 @@ function Find-Macros {
 # Processes
 # ---------------------------------------------------------------------------
 
-# AutoHotkey processes started from this folder, whatever their session.
+# Every AutoHotkey process, in one query; callers checking several accounts
+# pass it on instead of querying once per account.
 # https://learn.microsoft.com/windows/win32/cimwin32prov/win32-process
+function Get-AutoHotkeyProcesses {
+  return @(Get-CimInstance Win32_Process -Filter "Name='AutoHotkey32.exe' OR Name='AutoHotkey64.exe'" -ErrorAction SilentlyContinue)
+}
+
+# AutoHotkey processes started from this folder, whatever their session.
 function Get-NatroProcesses {
-  param([string] $Path)
+  param([string] $Path, [object[]] $All)
   if (-not $Path) { return @() }
+  if ($null -eq $All) { $All = Get-AutoHotkeyProcesses }
   $prefix = $Path.TrimEnd('\') + '\'
-  return @(Get-CimInstance Win32_Process -Filter "Name='AutoHotkey32.exe' OR Name='AutoHotkey64.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+  return @($All | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
 }
 
 # The main macro script is what matters: its helpers (background.ahk, the
 # fleet coordinator) may outlive it.
 function Test-NatroRunning {
-  param($Account, [int] $SessionId = -1)
-  foreach ($p in Get-NatroProcesses $Account.MacroPath) {
+  param($Account, [int] $SessionId = -1, [object[]] $All)
+  foreach ($p in Get-NatroProcesses $Account.MacroPath $All) {
     if ($p.CommandLine -notmatch 'natro_macro\.ahk') { continue }
     if ($SessionId -lt 0 -or $p.SessionId -eq $SessionId) { return $true }
   }
@@ -223,6 +229,27 @@ function Update-Macro {
   } finally {
     Remove-Item $marker -ErrorAction SilentlyContinue
   }
+}
+
+function Get-RemoteBranches {
+  param([string] $Path)
+  $git = @('-c', 'safe.directory=*', '-C', $Path)
+  & git @git fetch --quiet --prune origin 2>$null
+  return @(& git @git branch -r --format='%(refname:short)' 2>$null |
+    Where-Object { $_ -and $_ -notmatch '/HEAD$' -and $_ -ne 'origin' } | ForEach-Object { $_ -replace '^origin/', '' })
+}
+
+# Natro rewrites nm_config.ini from memory, so a running macro is stopped
+# before its GitBranch changes; the update then restarts it where it ran.
+function Set-MacroBranch {
+  param($Cfg, [string] $Path, [string] $Branch)
+  if (Get-NatroProcesses $Path) { Stop-NatroProcesses $Path }
+  Set-NatroIniValue $Path 'GitBranch' $Branch
+  if (-not (Get-NatroIniValue $Path 'GitRepoUrl')) { Set-NatroIniValue $Path 'GitRepoUrl' $Cfg.DefaultRepoUrl }
+  Write-Log "$(Split-Path $Path -Leaf) suit maintenant $Branch." OK
+  # An empty name list would mean "every account" to Update-Macros.
+  $owners = @($Cfg.Accounts | Where-Object { $_.MacroPath -eq $Path } | ForEach-Object { $_.Name })
+  if ($owners.Count) { Update-Macros $Cfg -Names $owners } else { [void](Update-Macro $Cfg $Path) }
 }
 
 # Turns an old release folder into a git instance of the fork, in place.

@@ -1,9 +1,6 @@
-﻿# Interactive menus. Each choice calls an action from Actions.ps1 or a small
-# account/macro editor below; nothing here holds state of its own.
-
-# ---------------------------------------------------------------------------
-# Account and macro editors
-# ---------------------------------------------------------------------------
+﻿# Text menu, kept for consoles and remote shells (-Action Menu). Each choice
+# asks its questions here and calls the shared actions in Actions.ps1, the
+# same ones the window uses.
 
 function Format-MacroLabel {
   param($Info)
@@ -11,34 +8,23 @@ function Format-MacroLabel {
   return ('{0}  v{1}  [{2}]  utilisée le {3:dd.MM.yyyy}' -f $Info.Name, $Info.Version, $kind, $Info.LastUsed)
 }
 
+# ---------------------------------------------------------------------------
+# Questions, then the shared action
+# ---------------------------------------------------------------------------
+
 function Set-AccountMacro {
   param($Cfg)
   $a = Select-OneAccount $Cfg
   if (-not $a) { return }
   $macros = @(Find-Macros $Cfg)
   Write-Host "Actuelle : $(if ($a.MacroPath) { $a.MacroPath } else { '(aucune)' })"
-  $labels = @($macros | ForEach-Object { Format-MacroLabel $_ }) + @('Aucune macro')
-  $i = Select-Index $labels 'Macro'
+  $i = Select-Index (@($macros | ForEach-Object { Format-MacroLabel $_ }) + @('Aucune macro')) 'Macro'
   if ($i -lt 0) { return }
-  if ($i -eq $macros.Count) { $a.MacroPath = '' }
-  else {
-    $chosen = $macros[$i]
-    $other = $Cfg.Accounts | Where-Object { $_.Name -ne $a.Name -and $_.MacroPath -eq $chosen.Path } | Select-Object -First 1
-    if ($other -and -not (Confirm-Action "$($other.Name) utilise déjà cette macro. L'associer quand même ?")) { return }
-    $a.MacroPath = $chosen.Path
-    if (-not $chosen.IsGit) { Write-Host 'Cette macro est une ancienne version : « Convertir une ancienne macro » la passe sur ta version Cursed.' -ForegroundColor Yellow }
-  }
-  Save-BssConfig $Cfg
-  Sync-NatroTask $Cfg $a
-  Write-Log "$($a.Name) : macro = $(if ($a.MacroPath) { $a.MacroPath } else { '(aucune)' })." OK
-}
-
-function Get-RemoteBranches {
-  param([string] $Path)
-  $git = @('-c', 'safe.directory=*', '-C', $Path)
-  & git @git fetch --quiet --prune origin 2>$null
-  return @(& git @git branch -r --format='%(refname:short)' 2>$null |
-    Where-Object { $_ -and $_ -notmatch '/HEAD$' -and $_ -ne 'origin' } | ForEach-Object { $_ -replace '^origin/', '' })
+  $path = $(if ($i -eq $macros.Count) { '' } else { $macros[$i].Path })
+  $other = $Cfg.Accounts | Where-Object { $path -and $_.Name -ne $a.Name -and $_.MacroPath -eq $path } | Select-Object -First 1
+  if ($other -and -not (Confirm-Action "$($other.Name) utilise déjà cette macro. L'associer quand même ?")) { return }
+  Set-AccountMacroPath $Cfg $a.Name $path
+  if ($path -and -not $macros[$i].IsGit) { Write-Host 'Ancienne version : « Convertir une ancienne macro » la passe sur ta version Cursed.' -ForegroundColor Yellow }
 }
 
 function Set-MacroBranchMenu {
@@ -53,26 +39,14 @@ function Set-MacroBranchMenu {
   if (-not $branches.Count) { Write-Host 'Impossible de lister les branches (réseau ?).' -ForegroundColor Yellow; return }
   $j = Select-Index $branches 'Branche'
   if ($j -lt 0) { return }
-  $branch = $branches[$j]
-
   if ($i -eq 0) {
-    $Cfg.DefaultBranch = $branch
+    $Cfg.DefaultBranch = $branches[$j]
     Save-BssConfig $Cfg
-    Write-Log "Branche par défaut : $branch." OK
+    Write-Log "Branche par défaut : $($branches[$j])." OK
     return
   }
-  $path = $sample.Path
-  $running = [bool](Get-NatroProcesses $path)
-  # Natro rewrites nm_config.ini from memory, so the macro is stopped before
-  # its GitBranch is changed, and restarted after the update.
-  if ($running -and -not (Confirm-Action 'Cette macro tourne : l''arrêter, changer de branche, mettre à jour et la relancer ?')) { return }
-  if ($running) { Stop-NatroProcesses $path }
-  Set-NatroIniValue $path 'GitBranch' $branch
-  if (-not (Get-NatroIniValue $path 'GitRepoUrl')) { Set-NatroIniValue $path 'GitRepoUrl' $Cfg.DefaultRepoUrl }
-  Write-Log "$($sample.Name) suit maintenant $branch." OK
-  # An empty name list would mean "every account" to Update-Macros.
-  $owners = @($Cfg.Accounts | Where-Object { $_.MacroPath -eq $path } | ForEach-Object { $_.Name })
-  if ($owners.Count) { Update-Macros $Cfg -Names $owners } else { [void](Update-Macro $Cfg $path) }
+  if ((Get-NatroProcesses $sample.Path) -and -not (Confirm-Action 'Cette macro tourne : l''arrêter, changer de branche, mettre à jour et la relancer ?')) { return }
+  Set-MacroBranch $Cfg $sample.Path $branches[$j]
 }
 
 function Convert-MacroMenu {
@@ -85,100 +59,48 @@ function Convert-MacroMenu {
   [void](Convert-MacroToGit $Cfg $old[$i].Path)
 }
 
-function Switch-AccountPause {
-  param($Cfg)
+function Switch-AccountFlagMenu {
+  param($Cfg, [string] $Flag)
   $a = Select-OneAccount $Cfg
-  if (-not $a) { return }
-  $a.Paused = -not $a.Paused
-  Save-BssConfig $Cfg
-  if ($a.Paused) { Write-Log "$($a.Name) en pause : le superviseur ne relance plus rien pour ce compte (la session reste ouverte)." OK }
-  else { Write-Log "$($a.Name) n'est plus en pause." OK }
+  if ($a) { Set-AccountFlag $Cfg $a.Name $Flag (-not $a.$Flag) }
 }
 
-function Switch-AccountEnabled {
-  param($Cfg)
-  $a = Select-OneAccount $Cfg
-  if (-not $a) { return }
-  $a.Enabled = -not $a.Enabled
-  Save-BssConfig $Cfg
-  Sync-NatroTask $Cfg $a
-  Write-Log "$($a.Name) : $(if ($a.Enabled) { 'inclus dans' } else { 'exclu de' }) « Tout lancer » et de la supervision." OK
-}
-
-function Add-NewMacroAccount {
+function Add-NewMacroAccountMenu {
   param($Cfg)
   $name = (Read-Host 'Nom du nouveau compte Windows (ex : Roblox3)').Trim()
-  if ($name -notmatch '^[A-Za-z0-9_-]{1,20}$') { Write-Host 'Nom invalide (lettres, chiffres, - et _, 20 caractères max).' -ForegroundColor Yellow; return }
-  if (Get-LocalUser -Name $name -ErrorAction SilentlyContinue) { Write-Host 'Ce compte existe déjà : utilise « Ajouter un compte Windows existant ».' -ForegroundColor Yellow; return }
-  $password = Read-NewPassword $name
-  New-LocalUser -Name $name -Password $password -PasswordNeverExpires -AccountNeverExpires -Description 'Bee Swarm macro account (BSS Manager)' | Out-Null
-  Add-ToRdpGroups $name
-  $account = New-AccountEntry $Cfg $name
-  Set-AccountCredential $account $password
-  $Cfg.Accounts = @($Cfg.Accounts) + $account
-  Save-BssConfig $Cfg
-  Write-Log "Compte $name créé (adresse $($account.Ip), mot de passe enregistré)." OK
-  Write-Host @"
-
-Pour finir de préparer $name :
-  1. « Tout lancer » ou le menu ouvre sa session une première fois.
-  2. Dans cette session : installe Roblox et connecte le compte Roblox de cette macro.
-  3. Ici : « Associer une macro à un compte ».
-"@ -ForegroundColor Cyan
+  if (-not $name) { return }
+  [void](New-MacroAccount $Cfg $name (Read-NewPassword $name))
 }
 
-function Add-ExistingAccount {
+function Add-ExistingAccountMenu {
   param($Cfg)
-  $known = @($Cfg.Accounts | ForEach-Object { $_.Name })
-  $candidates = @(Get-LocalUser | Where-Object { $_.Enabled -and $_.Name -ne $env:USERNAME -and $known -notcontains $_.Name } | ForEach-Object { $_.Name })
+  $candidates = @(Get-AddableWindowsAccounts $Cfg)
   if (-not $candidates.Count) { Write-Host 'Aucun autre compte Windows disponible.' -ForegroundColor Yellow; return }
   $i = Select-Index $candidates 'Compte à ajouter'
   if ($i -lt 0) { return }
-  Add-ToRdpGroups $candidates[$i]
-  $account = New-AccountEntry $Cfg $candidates[$i]
-  $Cfg.Accounts = @($Cfg.Accounts) + $account
-  Save-BssConfig $Cfg
-  Write-Log "$($account.Name) ajouté (adresse $($account.Ip))." OK
+  $password = $null
   if (Confirm-Action 'Enregistrer son mot de passe maintenant (sinon Windows le demandera à la connexion) ?') {
-    Set-AccountCredential $account (Read-Host "Mot de passe Windows actuel de $($account.Name)" -AsSecureString)
-    Write-Log "Mot de passe de $($account.Name) enregistré." OK
+    $password = Read-Host "Mot de passe Windows actuel de $($candidates[$i])" -AsSecureString
   }
+  [void](Add-ExistingMacroAccount $Cfg $candidates[$i] $password)
 }
 
-function Set-AccountPassword {
+function Set-AccountPasswordMenu {
   param($Cfg)
   $a = Select-OneAccount $Cfg
   if (-not $a) { return }
   $i = Select-Index @('Enregistrer le mot de passe actuel (ne change rien dans Windows)', "Changer le mot de passe Windows de $($a.Name)") 'Choix'
-  if ($i -lt 0) { return }
-  if ($i -eq 0) { $password = Read-Host "Mot de passe Windows actuel de $($a.Name)" -AsSecureString }
-  else {
-    $password = Read-NewPassword $a.Name
-    Set-LocalUser -Name $a.Name -Password $password
-    Write-Log "Mot de passe Windows de $($a.Name) changé." OK
-  }
-  Set-AccountCredential $a $password
-  Write-Log "Mot de passe de $($a.Name) enregistré pour la connexion automatique de sa session." OK
+  if ($i -eq 0) { Set-AccountPasswordValue $Cfg $a.Name (Read-Host "Mot de passe Windows actuel de $($a.Name)" -AsSecureString) $false }
+  elseif ($i -eq 1) { Set-AccountPasswordValue $Cfg $a.Name (Read-NewPassword $a.Name) $true }
 }
 
-function Remove-MacroAccount {
+function Remove-MacroAccountMenu {
   param($Cfg)
   $a = Select-OneAccount $Cfg
   if (-not $a) { return }
   if (-not (Confirm-Action "Retirer $($a.Name) de BSS Manager (sa session sera fermée) ?")) { return }
-  [void](Close-AccountSession $a)
-  Unregister-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-NatroTaskName $a) -Confirm:$false -ErrorAction SilentlyContinue
-  [BssNative]::DeleteCred((Get-CredTarget $a))
-  $Cfg.Accounts = @($Cfg.Accounts | Where-Object { $_.Name -ne $a.Name })
-  Save-BssConfig $Cfg
-  Write-Log "$($a.Name) retiré de BSS Manager." OK
-  if (Get-LocalUser -Name $a.Name -ErrorAction SilentlyContinue) {
-    $typed = Read-Host "Pour SUPPRIMER aussi le compte Windows (définitif), tape « $($a.Name) ». Sinon Entrée"
-    if ($typed -ceq $a.Name) {
-      Remove-LocalUser -Name $a.Name
-      Write-Log "Compte Windows $($a.Name) supprimé (le dossier C:\Users\$($a.Name) reste sur le disque)." OK
-    }
-  }
+  $typed = Read-Host "Pour SUPPRIMER aussi le compte Windows (définitif), tape « $($a.Name) ». Sinon Entrée"
+  Remove-ManagedAccount $Cfg $a.Name ($typed -ceq $a.Name)
 }
 
 function Set-AutoLogonMenu {
@@ -186,11 +108,15 @@ function Set-AutoLogonMenu {
   Write-Host ('Connexion automatique : {0}' -f $(if ($state.Enabled) { "activée ($($state.User))" } else { 'désactivée' }))
   if ($state.Enabled) {
     if (Confirm-Action 'La désactiver et effacer le mot de passe stocké ?') { Disable-AutoLogon }
-  } else {
-    Write-Host 'Windows ouvrira ta session seul au démarrage, puis le superviseur relancera tout.' -ForegroundColor Cyan
-    Write-Host 'Le mot de passe est stocké chiffré par Windows (secret LSA). Windows Hello seul sera désactivé.' -ForegroundColor Cyan
-    if (Confirm-Action 'Activer la connexion automatique ?') { Enable-AutoLogon }
+    return
   }
+  Write-Host 'Windows ouvrira ta session seul au démarrage, puis le superviseur relancera tout.' -ForegroundColor Cyan
+  Write-Host 'Le mot de passe est stocké chiffré par Windows (secret LSA). Windows Hello seul sera désactivé.' -ForegroundColor Cyan
+  if (-not (Confirm-Action 'Activer la connexion automatique ?')) { return }
+  $user = Read-Host "Compte Windows à ouvrir automatiquement (Entrée = $env:USERNAME)"
+  if (-not $user) { $user = $env:USERNAME }
+  Write-Host 'Pour un compte lié à Microsoft, tape le mot de passe du compte Microsoft (pas le code PIN).' -ForegroundColor Yellow
+  Enable-AutoLogon $user (Read-NewPassword $user)
 }
 
 # ---------------------------------------------------------------------------
@@ -204,11 +130,12 @@ function Invoke-MenuChoice {
 }
 
 function Show-AccountsMenu {
-  param($Cfg)
   while ($true) {
+    # Re-read every time: the supervisor or a window may have changed it.
+    $cfg = Get-BssConfig
     Clear-Host
     Write-Host '=== Comptes et macros ===' -ForegroundColor Cyan
-    foreach ($a in @($Cfg.Accounts)) {
+    foreach ($a in @($cfg.Accounts)) {
       $flags = @()
       if (-not $a.Enabled) { $flags += 'exclu' }
       if ($a.Paused) { $flags += 'pause' }
@@ -226,15 +153,15 @@ function Show-AccountsMenu {
     Write-Host '  9. Retirer un compte'
     Write-Host '  0. Retour'
     switch (Read-Host "`nChoix") {
-      '1' { Invoke-MenuChoice { Set-AccountMacro $Cfg } }
-      '2' { Invoke-MenuChoice { Set-MacroBranchMenu $Cfg } }
-      '3' { Invoke-MenuChoice { Convert-MacroMenu $Cfg } }
-      '4' { Invoke-MenuChoice { Switch-AccountPause $Cfg } }
-      '5' { Invoke-MenuChoice { Switch-AccountEnabled $Cfg } }
-      '6' { Invoke-MenuChoice { Add-NewMacroAccount $Cfg } }
-      '7' { Invoke-MenuChoice { Add-ExistingAccount $Cfg } }
-      '8' { Invoke-MenuChoice { Set-AccountPassword $Cfg } }
-      '9' { Invoke-MenuChoice { Remove-MacroAccount $Cfg } }
+      '1' { Invoke-MenuChoice { Set-AccountMacro $cfg } }
+      '2' { Invoke-MenuChoice { Set-MacroBranchMenu $cfg } }
+      '3' { Invoke-MenuChoice { Convert-MacroMenu $cfg } }
+      '4' { Invoke-MenuChoice { Switch-AccountFlagMenu $cfg 'Paused' } }
+      '5' { Invoke-MenuChoice { Switch-AccountFlagMenu $cfg 'Enabled' } }
+      '6' { Invoke-MenuChoice { Add-NewMacroAccountMenu $cfg } }
+      '7' { Invoke-MenuChoice { Add-ExistingAccountMenu $cfg } }
+      '8' { Invoke-MenuChoice { Set-AccountPasswordMenu $cfg } }
+      '9' { Invoke-MenuChoice { Remove-MacroAccountMenu $cfg } }
       '0' { return }
       '' { return }
     }
@@ -258,23 +185,23 @@ function Show-StopMenu {
 }
 
 function Show-MainMenu {
-  param($Cfg)
   while ($true) {
+    $cfg = Get-BssConfig
     Clear-Host
     Write-Host '=========================================' -ForegroundColor Cyan
     Write-Host '   BSS Manager - Natro Macro multi-RDP' -ForegroundColor Cyan
     Write-Host '=========================================' -ForegroundColor Cyan
     try {
-      $w = Get-WrapperState $Cfg
+      $w = Get-WrapperState $cfg
       if ($w.Healthy) { Write-Host "RDP Wrapper    : OK (termsrv $($w.TermsrvVersion))" -ForegroundColor Green }
       else { Write-Host "RDP Wrapper    : À RÉPARER (termsrv $($w.TermsrvVersion)) -> 6" -ForegroundColor Red }
       $sup = Get-SupervisorStatus
       if ($sup -and $sup.Alive) { Write-Host "Superviseur    : actif (il y a $($sup.AgeSec) s)" -ForegroundColor Green }
-      elseif ($sup) { Write-Host 'Superviseur    : ARRÊTÉ -> 8' -ForegroundColor Red }
+      elseif ($sup) { Write-Host 'Superviseur    : ARRÊTÉ' -ForegroundColor Red }
       else { Write-Host 'Superviseur    : pas installé -> 8' -ForegroundColor Yellow }
       $sessions = Get-BssSessions
-      $up = @($Cfg.Accounts | Where-Object { Test-SessionConnected (Get-AccountSession $_ $sessions) })
-      Write-Host "Sessions macro : $($up.Count) / $(@($Cfg.Accounts | Where-Object { $_.Enabled }).Count) connectée(s)"
+      $up = @($cfg.Accounts | Where-Object { Test-SessionConnected (Get-AccountSession $_ $sessions) })
+      Write-Host "Sessions macro : $($up.Count) / $(@($cfg.Accounts | Where-Object { $_.Enabled }).Count) connectée(s)"
     } catch { Write-Host "État indisponible : $($_.Exception.Message)" -ForegroundColor Yellow }
     Write-Host ''
     Write-Host '  1. Tout lancer (mises à jour, sessions, macros)'
@@ -288,14 +215,14 @@ function Show-MainMenu {
     Write-Host '  9. Désinstallation'
     Write-Host '  0. Quitter'
     switch (Read-Host "`nChoix") {
-      '1' { Invoke-MenuChoice { Start-All $Cfg } }
-      '2' { Invoke-MenuChoice { Show-StopMenu $Cfg } }
-      '3' { Invoke-MenuChoice { Show-Status $Cfg } }
-      '4' { Invoke-MenuChoice { Show-UpdateMenu $Cfg } }
-      '5' { Show-AccountsMenu $Cfg }
-      '6' { Invoke-MenuChoice { [void](Update-RdpWrapper $Cfg) } }
+      '1' { Invoke-MenuChoice { Start-All $cfg } }
+      '2' { Invoke-MenuChoice { Show-StopMenu $cfg } }
+      '3' { Invoke-MenuChoice { Show-Status $cfg } }
+      '4' { Invoke-MenuChoice { Show-UpdateMenu $cfg } }
+      '5' { Show-AccountsMenu }
+      '6' { Invoke-MenuChoice { [void](Update-RdpWrapper $cfg) } }
       '7' { Invoke-MenuChoice { Set-AutoLogonMenu } }
-      '8' { Invoke-MenuChoice { Install-Manager $Cfg } }
+      '8' { Invoke-MenuChoice { Install-Manager $cfg } }
       '9' { Invoke-MenuChoice { if (Confirm-Action 'Supprimer les tâches et raccourcis de BSS Manager ?') { Uninstall-Manager } } }
       '0' { return }
     }

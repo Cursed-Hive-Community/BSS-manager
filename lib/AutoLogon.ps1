@@ -35,10 +35,11 @@ function Get-AutoLogonState {
 }
 
 function Enable-AutoLogon {
-  $user = Read-Host "Compte Windows à ouvrir automatiquement (Entrée = $env:USERNAME)"
-  if (-not $user) { $user = $env:USERNAME }
-  Write-Host 'Pour un compte lié à Microsoft, tape le mot de passe du compte Microsoft (pas le code PIN).' -ForegroundColor Yellow
-  $password = Read-NewPassword $user
+  param([string] $User, [Security.SecureString] $Password)
+  if (-not $User) { $User = $env:USERNAME }
+  if (-not $Password -or $Password.Length -eq 0) { throw 'Mot de passe vide.' }
+  $user = $User
+  $password = $Password
 
   $previousFile = Get-AutoLogonPreviousFile
   if (-not (Test-Path $previousFile)) {
