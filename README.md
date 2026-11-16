@@ -109,6 +109,13 @@ Adding an account runs every step, each skipped when already done, so
    the roblox.com page opened in Edge (*Ouvrir Roblox* opens both again if
    needed). The supervisor starts the macro about two minutes later.
 
+Natro only supports the Roblox installed from roblox.com ("Web Version"),
+not the Microsoft Store one ("UWP"). It tells them apart by the command of
+the `roblox://` link (`HKCR\roblox\shell\open\command` containing
+`RobloxPlayerBeta`): without that registration it finds no Web Roblox and
+cannot open its links either. BSS Manager installs the roblox.com version
+and writes that registration when it is missing.
+
 Natro reconnects through `roblox://` links, but every fifth attempt it
 falls back to the browser with the private server's web address. That is
 why each macro account gets, beforehand: firewall rules for its macro
