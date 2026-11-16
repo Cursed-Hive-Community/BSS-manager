@@ -46,6 +46,9 @@ What is proven, by which kind of evidence, and what is not.
       2-minute grace (12:58), Natro running at 12:59
 - [x] per-account privacy set to off in a signed-in account's hive
       (GuidingALT1, PlayerAlt2)
+- [x] a brand-new account end to end (PlayerAlt3, 13:04-13:08): installer
+      waited for to its end (52 s), Roblox opened and shown, macro started
+      by the supervisor after the sign-in; three macros running together
 
 # Loads, never driven
 
@@ -54,9 +57,14 @@ Parsed and loaded, but nobody has run these yet:
 - [ ] window buttons and dialogs, clicked by a person (only the rendering
       is proven)
 - [ ] Windows' privacy screen skipped at a new account's first sign-in
-      (policy set and readable; no new account signed in since)
-- [ ] the installer waited for to its end, then Roblox opened visibly for
-      the sign-in (GuidingALT1 was already signed in when it ran)
+      (PlayerAlt3 prepared after the policy; the owner reported other
+      problems, not this screen: to confirm)
+- [ ] firewall rules created beforehand stop the AutoHotkey prompt on a
+      new macro folder (the owner accepted it by hand for PlayerAlt3 13:09)
+- [ ] Edge opens with no first-run questions and launches Roblox from
+      roblox.com without asking, in a macro account
+- [ ] Natro's browser fallback (every fifth reconnect attempt) joins the
+      private server once the account is signed in on roblox.com
 - [ ] 1920x1080 sessions on this PC's screen (window larger than the
       screen?)
 - [ ] one-click start opens the sessions without a password prompt

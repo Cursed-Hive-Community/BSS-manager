@@ -35,6 +35,7 @@ function Start-All {
     $a = $accounts[$i]
     $missing = Get-AccountReadiness $a
     if ($missing) { Write-Log "$($a.Roblox) ($($a.Name)) : pas prêt, $missing." WARN; continue }
+    Add-MacroFirewallRules $a.MacroPath
     $session = Get-AccountSession $a $sessions
     if (Test-SessionConnected $session) {
       if ($a.MacroPath -and -not (Test-NatroRunning $a $session.Id)) {
@@ -181,7 +182,12 @@ function Open-RobloxForSignIn {
     Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
   }
   [void](Start-InAccountSession $Account 'RobloxOpen' $exe.FullName '')
-  Write-Log "$($Account.Name) : Roblox ouvert dans sa session, connecte-toi." OK
+  # Natro's browser fallback needs the roblox.com sign-in too, which is
+  # separate from the app's: open its login page in the same go.
+  Set-AccountEdgeQuiet $Account
+  $edge = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe' -ErrorAction SilentlyContinue).'(default)'
+  if ($edge -and (Test-Path $edge)) { [void](Start-InAccountSession $Account 'RobloxWeb' $edge 'https://www.roblox.com/login') }
+  Write-Log "$($Account.Name) : Roblox et la page roblox.com ouverts dans sa session, connecte-toi aux deux (une fois)." OK
 }
 
 # Every step needed for one Roblox account, each skipped when already done,
@@ -246,6 +252,8 @@ function Add-RobloxAccount {
     throw "La session de $WindowsUser ne s'est pas ouverte en 5 minutes."
   }
   Set-AccountPrivacyOff $account
+  Set-AccountEdgeQuiet $account
+  Add-MacroFirewallRules $account.MacroPath
   if (-not (Install-RobloxInSession $account)) { throw "Roblox ne s'est pas installé dans la session de $WindowsUser." }
   if (-not (Get-RobloxSignedIn $WindowsUser)) { Open-RobloxForSignIn $Cfg $account }
 
@@ -473,7 +481,12 @@ function Install-Manager {
   New-Shortcut (Join-Path $desktop 'BSS Manager.lnk') (Join-Path $root 'BSS-Manager.bat') '' "$env:SystemRoot\System32\shell32.dll,21"
   Write-Log 'Raccourcis « BSS - Tout lancer » et « BSS Manager » créés sur le bureau.' OK
 
-  foreach ($a in @($Cfg.Accounts)) { Sync-NatroTask $Cfg $a }
+  foreach ($a in @($Cfg.Accounts | Where-Object { Get-LocalUser -Name $_.Name -ErrorAction SilentlyContinue })) {
+    Sync-NatroTask $Cfg $a
+    if ($a.MacroPath) { Add-MacroFirewallRules $a.MacroPath }
+    # Only reaches accounts whose session is open (their hive is loaded).
+    Set-AccountEdgeQuiet $a
+  }
   Start-SupervisorTask
 }
 

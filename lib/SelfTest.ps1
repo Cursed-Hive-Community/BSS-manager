@@ -201,6 +201,18 @@ function Invoke-SelfTest {
       (Get-AccountReadiness ([pscustomobject]@{ Name = 'NoSuchUser' + [Guid]::NewGuid().ToString('N').Substring(0, 6); Ip = '127.0.0.250'; MacroPath = 'x'; Roblox = 'x' })) -eq 'compte Windows introuvable'
     }
 
+    Add-Check 'Firewall rules: both AutoHotkey programs, TCP and UDP, inside the macro folder' {
+      $rules = @(Get-MacroFirewallRuleNames 'G:\x\Natro_Macro_Test')
+      $rules.Count -eq 4 -and @($rules | Where-Object { $_.Program -like 'G:\x\Natro_Macro_Test\submacros\AutoHotkey*.exe' }).Count -eq 4 -and
+        @($rules.Name | Sort-Object -Unique).Count -eq 4
+    }
+
+    Add-Check 'Edge auto-launch policy is valid JSON, roblox.com only' {
+      $p = $Script:RobloxAutoLaunch | ConvertFrom-Json
+      $origins = @($p | ForEach-Object { $_.allowed_origins }) | Sort-Object -Unique
+      @($p).Count -eq 2 -and @($origins | Where-Object { $_ -notmatch '^https://(www\.)?roblox\.com$' }).Count -eq 0
+    }
+
     Add-Check 'git is installed' { [bool](Get-Command git -ErrorAction SilentlyContinue) }
   } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

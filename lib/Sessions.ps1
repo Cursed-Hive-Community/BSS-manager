@@ -293,11 +293,47 @@ function Disable-PrivacyPrompt {
 # registry hive (loaded while its session is open). Device-wide choices
 # (diagnostic data, Find my device, the location service itself) stay as
 # the owner set them for the PC.
-function Set-AccountPrivacyOff {
-  param($Account)
+# Writes values into an account's own registry hive, which is loaded while
+# its session is open. Returns $false when it is not loaded.
+function Set-AccountHiveValues {
+  param($Account, [object[]] $Values)
   $sid = (Get-LocalUser -Name $Account.Name).SID.Value
   $hive = "Registry::HKEY_USERS\$sid"
-  if (-not (Test-Path $hive)) { Write-Log "$($Account.Name) : session pas chargée, confidentialité non réglée." WARN; return }
+  if (-not (Test-Path $hive)) { return $false }
+  foreach ($v in $Values) {
+    $key = Join-Path $hive $v[0]
+    if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+    New-ItemProperty -Path $key -Name $v[1] -Value $v[2] -PropertyType $v[3] -Force | Out-Null
+  }
+  return $true
+}
+
+# Natro falls back to the browser once every five reconnect attempts, and a
+# fresh Edge stops on its first-run questions, then asks before opening
+# Roblox. These are Edge policies written for the macro account only (user
+# policies in its own hive), so the owner's Edge is untouched. Roblox may be
+# opened from roblox.com without asking, and from nowhere else.
+# https://learn.microsoft.com/deployedge/microsoft-edge-policies
+$Script:RobloxAutoLaunch = '[{"allowed_origins":["https://www.roblox.com","https://roblox.com"],"protocol":"roblox-player"},{"allowed_origins":["https://www.roblox.com","https://roblox.com"],"protocol":"roblox"}]'
+
+function Set-AccountEdgeQuiet {
+  param($Account)
+  $edge = 'Software\Policies\Microsoft\Edge'
+  $values = @(
+    @($edge, 'HideFirstRunExperience', 1, 'DWord'),
+    @($edge, 'DefaultBrowserSettingEnabled', 0, 'DWord'),
+    @($edge, 'BrowserSignin', 0, 'DWord'),
+    @($edge, 'SyncDisabled', 1, 'DWord'),
+    @($edge, 'ShowRecommendationsEnabled', 0, 'DWord'),
+    @($edge, 'PersonalizationReportingEnabled', 0, 'DWord'),
+    @($edge, 'AutoLaunchProtocolsFromOrigins', $Script:RobloxAutoLaunch, 'String')
+  )
+  if (Set-AccountHiveValues $Account $values) { Write-Log "$($Account.Name) : Edge sans questions, et Roblox s'ouvre depuis roblox.com sans confirmation." OK }
+  else { Write-Log "$($Account.Name) : session fermée, Edge sera réglé à sa prochaine ouverture (Ouvrir Roblox ou Installer / réparer)." WARN }
+}
+
+function Set-AccountPrivacyOff {
+  param($Account)
   $values = @(
     @('Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo', 'Enabled', 0, 'DWord'),
     @('Software\Microsoft\Windows\CurrentVersion\Privacy', 'TailoredExperiencesWithDiagnosticDataEnabled', 0, 'DWord'),
@@ -308,12 +344,8 @@ function Set-AccountPrivacyOff {
     @('Software\Microsoft\Personalization\Settings', 'AcceptedPrivacyPolicy', 0, 'DWord'),
     @('Software\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy', 'HasAccepted', 0, 'DWord')
   )
-  foreach ($v in $values) {
-    $key = Join-Path $hive $v[0]
-    if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
-    New-ItemProperty -Path $key -Name $v[1] -Value $v[2] -PropertyType $v[3] -Force | Out-Null
-  }
-  Write-Log "$($Account.Name) : confidentialité réglée sur non (publicité, localisation, saisie, reconnaissance vocale)." OK
+  if (Set-AccountHiveValues $Account $values) { Write-Log "$($Account.Name) : confidentialité réglée sur non (publicité, localisation, saisie, reconnaissance vocale)." OK }
+  else { Write-Log "$($Account.Name) : session pas chargée, confidentialité non réglée." WARN }
 }
 
 function Test-ValidAccountName {

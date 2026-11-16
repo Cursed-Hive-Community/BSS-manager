@@ -31,7 +31,12 @@ Versioning[^semver].
 - No Windows privacy questions for new macro accounts, and their
   per-account privacy choices set to off.
 - *Ouvrir Roblox*: opens the Roblox app in an account's session to sign in;
-  the preparation does it after installing Roblox.
+  the preparation does it after installing Roblox. It also opens the
+  roblox.com login page in Edge, which Natro's browser fallback needs.
+- Firewall rules for each macro folder's AutoHotkey (inbound, TCP and UDP,
+  private networks), so Windows' prompt no longer stops the macro.
+- Edge policies for macro accounts only: no first-run questions, no
+  sign-in or sync, Roblox launched from roblox.com without asking.
 
 ## Changed
 

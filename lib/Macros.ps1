@@ -202,6 +202,40 @@ function Start-Natro {
 }
 
 # ---------------------------------------------------------------------------
+# Firewall
+# ---------------------------------------------------------------------------
+# The fork's fleet talks over the network, so the first start of each
+# folder's AutoHotkey raises Windows' firewall prompt, which a standard
+# macro account cannot answer and which steals focus from the macro. The
+# rules it would create are created beforehand: inbound, TCP and UDP, for
+# that folder's two AutoHotkey programs only, on private networks only.
+# https://learn.microsoft.com/powershell/module/netsecurity/new-netfirewallrule
+
+function Get-MacroFirewallRuleNames {
+  param([string] $Path)
+  $leaf = Split-Path $Path -Leaf
+  foreach ($exe in 'AutoHotkey32.exe', 'AutoHotkey64.exe') {
+    foreach ($protocol in 'TCP', 'UDP') {
+      [pscustomobject]@{ Name = "BSS Manager - $leaf - $exe - $protocol"; Program = Join-Path $Path "submacros\$exe"; Protocol = $protocol }
+    }
+  }
+}
+
+function Add-MacroFirewallRules {
+  param([string] $Path)
+  if (-not (Test-NatroFolder $Path)) { return }
+  $added = 0
+  foreach ($rule in Get-MacroFirewallRuleNames $Path) {
+    if (-not (Test-Path $rule.Program)) { continue }
+    if (Get-NetFirewallRule -DisplayName $rule.Name -ErrorAction SilentlyContinue) { continue }
+    New-NetFirewallRule -DisplayName $rule.Name -Group 'BSS Manager' -Direction Inbound -Action Allow -Profile Private `
+      -Program $rule.Program -Protocol $rule.Protocol | Out-Null
+    $added++
+  }
+  if ($added) { Write-Log "$(Split-Path $Path -Leaf) : $added règle(s) de pare-feu ajoutée(s) (réseau privé)." OK }
+}
+
+# ---------------------------------------------------------------------------
 # Updates
 # ---------------------------------------------------------------------------
 

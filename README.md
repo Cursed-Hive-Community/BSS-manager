@@ -105,9 +105,17 @@ Adding an account runs every step, each skipped when already done, so
    as set for the PC.
 4. Roblox installed in that session from roblox.com, only if the installer
    carries a valid Roblox Corporation signature, then opened.
-5. You sign in to Roblox in that session, by hand, once (*Ouvrir Roblox*
-   opens it again if needed). The supervisor starts the macro about two
-   minutes later.
+5. You sign in to Roblox in that session, by hand, once, in the app and on
+   the roblox.com page opened in Edge (*Ouvrir Roblox* opens both again if
+   needed). The supervisor starts the macro about two minutes later.
+
+Natro reconnects through `roblox://` links, but every fifth attempt it
+falls back to the browser with the private server's web address. That is
+why each macro account gets, beforehand: firewall rules for its macro
+folder's AutoHotkey (inbound, TCP and UDP, private networks only), and Edge
+policies in its own registry hive (no first-run questions, no sign-in or
+sync, Roblox opened from roblox.com without asking). The owner's own Edge
+is not touched.
 
 The Roblox account signed in is read from
 `%LOCALAPPDATA%\Roblox\LocalStorage\appStorage.json` in each profile. An
