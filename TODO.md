@@ -67,9 +67,15 @@ Parsed and loaded, but nobody has run these yet:
       roblox.com without asking, in a macro account
 - [ ] Natro's browser fallback (every fifth reconnect attempt) joins the
       private server once the account is signed in on roblox.com
-- [ ] Natro in PlayerAlt3 joins its server through roblox:// (why the
-      installer left the keys out, a Roblox stopped right after install,
-      not proven)
+- [ ] Natro in PlayerAlt3 joins its server through roblox://. Roblox's own
+      logs show its installer crashing ("FailFast ... failed to access
+      client process info: Accès refusé") right after "Launcher set", both
+      at the first install (14:54, started by our one-shot task) and at a
+      forced update (15:16, started by Roblox under Natro, itself started
+      by its task). That crash is why the roblox:// keys were missing; the
+      earlier guess (a Roblox stopped too early) was wrong. Open question:
+      task-scheduler context, or the account recreated under the same
+      name. Decisive test: the same update started from the desktop.
 - [ ] Roblox settings written in a macro account and kept after Natro
       reopens Roblox (tested on a copy of the owner's real file only: 6
       values changed, Natro's own checks find nothing left)
