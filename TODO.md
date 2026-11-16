@@ -62,6 +62,9 @@ What is proven, by which kind of evidence, and what is not.
       PlayerAlt3 one by one, registered GuidingALT1's links, restarted the
       macros; 1 min 23 s in all, the three running again afterwards, and
       GuidingALT1 joining its server in game (seen by the owner)
+- [x] status page started by the restarted supervisor: HTTP 200 on
+      127.0.0.1 and on 192.168.1.10:47700, health ok, five accounts with
+      their live state, POST refused with 405
 - [x] a brand-new account end to end (PlayerAlt3, 13:04-13:08): installer
       waited for to its end (52 s), Roblox opened and shown, macro started
       by the supervisor after the sign-in; three macros running together
@@ -88,8 +91,8 @@ Parsed and loaded, but nobody has run these yet:
       run
 - [ ] Start / Stop in real use, and the system staying off after a
       reboot when stopped
-- [ ] status page served by the supervisor's child process and read from
-      another device on the LAN (document and verdict self-tested only)
+- [ ] status page read from another device on the LAN (proven from this
+      PC only, through its LAN address)
 - [ ] *Nouvelle macro...* creating a folder in real use (name checks
       self-tested only)
 - [ ] Raspberry Pi watchdog and smart power strip (not built)
