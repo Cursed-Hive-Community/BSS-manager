@@ -37,12 +37,18 @@ function Get-RobloxProcessesAll {
     ForEach-Object { [pscustomobject]@{ Id = $_.Id; Name = $_.ProcessName; User = ($_.UserName -split '\\')[-1]; Started = $_.StartTime } })
 }
 
-# The owner's own Roblox counts as "another Roblox" too. It is only closed
-# when the owner allowed it (CloseOwnerRobloxForUpdates); otherwise the
+# The owner's own Roblox counts as "another Roblox" too. It may be closed
+# when the owner allowed it (CloseOwnerRobloxForUpdates) or when it is the
+# local account's, which then is a macro like the others; otherwise the
 # window waits for it.
+function Test-OwnerRobloxClosable {
+  param($Cfg)
+  return ([bool]$Cfg.CloseOwnerRobloxForUpdates -or [bool]@($Cfg.Accounts | Where-Object { $_.Local -and $_.Enabled }).Count)
+}
+
 function Test-OwnerRobloxBlocking {
   param($Cfg)
-  if ($Cfg.CloseOwnerRobloxForUpdates) { return $false }
+  if (Test-OwnerRobloxClosable $Cfg) { return $false }
   return [bool](Get-RobloxProcessesAll | Where-Object { $_.User -eq $env:USERNAME })
 }
 
@@ -70,7 +76,8 @@ function Invoke-RobloxWindow {
         Stop-NatroProcesses $a.MacroPath
       }
     }
-    Get-RobloxProcessesAll | Where-Object { $_.User -ne $env:USERNAME -or $Cfg.CloseOwnerRobloxForUpdates } |
+    $ownerClosable = Test-OwnerRobloxClosable $Cfg
+    Get-RobloxProcessesAll | Where-Object { $_.User -ne $env:USERNAME -or $ownerClosable } |
       ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Seconds 2
     Write-Log "Créneau Roblox ouvert ($Reason) : $(if ($wasRunning) { "macros arrêtées : $($wasRunning -join ', ')" } else { 'aucune macro ne tournait' })."

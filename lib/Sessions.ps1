@@ -145,6 +145,12 @@ function Approve-LoopbackCertificate {
 # still connecting is left alone, so windows cannot pile up.
 function Open-AccountSession {
   param($Cfg, $Account)
+  # The owner's session is opened by the owner (or by automatic sign-in),
+  # never by a Remote Desktop connection to oneself.
+  if ($Account.Local) {
+    Write-Log "$($Account.Name) : compte local, il tourne dans ta session dès qu'elle est ouverte." WARN
+    return $false
+  }
   if (Get-AccountClient $Account) {
     Write-Log "$($Account.Name) : une fenêtre de connexion est déjà ouverte, pas de deuxième." WARN
     return $false
@@ -195,7 +201,8 @@ function Test-RobloxInstalled {
 function Get-AccountReadiness {
   param($Account)
   if (-not (Get-LocalUser -Name $Account.Name -ErrorAction SilentlyContinue)) { return 'compte Windows introuvable' }
-  if (-not [BssNative]::CredExists((Get-CredTarget $Account))) { return 'mot de passe non enregistré' }
+  # The local account runs in the owner's own session: no password to open it.
+  if (-not $Account.Local -and -not [BssNative]::CredExists((Get-CredTarget $Account))) { return 'mot de passe non enregistré' }
   if (-not $Account.MacroPath) { return 'aucune macro associée' }
   # A macro folder named after another account holds that account's settings
   # (fields, private server, webhook): never run it for this one. The owner
@@ -262,6 +269,8 @@ function Set-CommonPassword {
 # saved session credential.
 function Set-AccountCommonPassword {
   param($Account)
+  # The owner's own password is never touched (the local account is theirs).
+  if ($Account.Local -or $Account.Name -eq $env:USERNAME) { throw "$($Account.Name) est ton propre compte Windows : son mot de passe n'est jamais changé." }
   $password = Get-CommonPassword
   if (-not $password) { throw 'Aucun mot de passe commun : définis-le d''abord (onglet Réglages).' }
   Set-LocalUser -Name $Account.Name -Password $password
@@ -548,6 +557,13 @@ function Test-ValidAccountName {
 
 function Close-AccountSession {
   param($Account)
+  # Never log the owner off: for the local account, stopping means stopping
+  # its Natro and its Roblox, and the session stays as it is.
+  if ($Account.Local -or $Account.Name -eq $env:USERNAME) {
+    if ($Account.MacroPath) { Stop-NatroProcesses $Account.MacroPath }
+    Get-RobloxProcessesInSession $Account | Stop-Process -Force -ErrorAction SilentlyContinue
+    return $true
+  }
   $closed = $false
   foreach ($s in @(Get-BssSessions | Where-Object { $_.User -eq $Account.Name })) {
     if ([BssNative]::Logoff($s.Id)) { $closed = $true }

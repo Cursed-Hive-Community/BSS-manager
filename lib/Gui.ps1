@@ -365,7 +365,24 @@ function Update-UiSettings {
 function Get-UiSelectedName {
   $row = $Script:Ui.AccountsGrid.CurrentRow
   if (-not $row) { Show-UiInfo 'Choisis d''abord un compte dans le tableau.'; return $null }
-  return [string]$row.Cells['Compte'].Value
+  return ([string]$row.Cells['Compte'].Value) -replace ' \(ma session\)$', ''
+}
+
+function Set-UiLocalAccount {
+  $cfg = Get-BssConfig
+  $current = $cfg.Accounts | Where-Object { $_.Local } | Select-Object -First 1
+  $candidates = @($cfg.Accounts | Where-Object { -not $_.Local })
+  $labels = @('(aucun : ma session ne fait pas tourner de macro)') + @($candidates | ForEach-Object {
+      '{0}  -  compte Windows {1}, macro {2}' -f $(if ($_.Roblox) { $_.Roblox } elseif ($_.Role) { $_.Role } else { '?' }), $_.Name, $(if ($_.MacroPath) { Split-Path $_.MacroPath -Leaf } else { '(aucune)' }) })
+  $intro = "Le compte choisi tourne dans TA session ($env:USERNAME), sans session RDP : une session de moins. Son compte Windows actuel est exclu et sa session fermée (pas supprimé). " +
+    "Ton propre Roblox doit être connecté avec ce compte, et ses réglages sont ceux que Natro exige. Natro prend le clavier et la souris de ta session pendant qu'il tourne. " +
+    "Actuel : $(if ($current) { "$($current.Roblox) ($(Split-Path $current.MacroPath -Leaf))" } else { 'aucun' })."
+  $r = Show-UiDialog 'Compte local (ma session)' @(@{ Key = 'pick'; Label = 'Compte'; Kind = 'list'; Items = $labels; Value = 0 }) $intro
+  if (-not $r -or $r.pick -lt 0) { return }
+  $source = $(if ($r.pick -eq 0) { '' } else { $candidates[$r.pick - 1].Name })
+  if ($source -and -not (Confirm-Ui "Faire tourner $($candidates[$r.pick - 1].Roblox) dans ta session ? Sa session RDP ($source) sera fermée.")) { return }
+  Set-LocalAccount (Get-BssConfig) $source
+  Update-UiAccounts -Force
 }
 
 function Invoke-UiAccountAction {
@@ -672,6 +689,7 @@ function New-UiAccountsTab {
   $Script:Ui.AccountsGrid.Add_DataBindingComplete({ Set-UiAccountColors })
   $buttons = New-UiFlow @(
     (New-UiButton 'Ajouter des comptes Roblox...' { Show-UiAddRobloxWizard }),
+    (New-UiButton 'Compte local (ma session)...' { Set-UiLocalAccount }),
     (New-UiButton 'Lancer' { Invoke-UiAccountAction 'Start' 'Lancer' $false }),
     (New-UiButton 'Arrêter' { Invoke-UiAccountAction 'Stop' 'Arrêter' $true }),
     (New-UiButton 'Relancer la macro' { Invoke-UiAccountAction 'Restart' 'Relancer la macro de' $true }),

@@ -95,6 +95,9 @@ Parsed and loaded, but nobody has run these yet:
       PC only, through its LAN address)
 - [ ] *Nouvelle macro...* creating a folder in real use (name checks
       self-tested only)
+- [ ] local account in real use: Natro started in the owner's session by
+      its task, supervised, stopped without logging the owner off, and
+      the owner's Roblox closed and updated in a Roblox window
 - [ ] Raspberry Pi watchdog and smart power strip (not built)
 - [ ] Roblox settings written in a macro account and kept after Natro
       reopens Roblox (tested on a copy of the owner's real file only: 6

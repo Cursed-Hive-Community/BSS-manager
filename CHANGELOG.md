@@ -14,6 +14,9 @@ Versioning[^semver].
   a verdict telling the owner's stop, maintenance, health and a crashed or
   hung supervisor apart.
 - *Nouvelle macro...*: creates `Natro_Macro_<name>` like the others.
+- A local account: one account, chosen from a list, runs in the owner's own
+  session instead of an RDP session, with guards so the owner's session,
+  password, Windows account and Edge are never touched.
 - A window (WinForms), opened by default: live account table, start, stop,
   restart, pause, passwords, macro assignment, branches, updates,
   conversion, RDP Wrapper, supervisor, automatic sign-in, settings and log.

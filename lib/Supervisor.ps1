@@ -149,6 +149,8 @@ function Invoke-SupervisorPass {
     if (Test-MacroUpdating $account.MacroPath) { $entry.State = 'mise à jour en cours'; continue }
 
     if (-not (Test-SessionConnected $session)) {
+      # The owner's session is the owner's to open (or automatic sign-in's).
+      if ($account.Local) { $entry.State = 'ta session n''est pas connectée'; continue }
       $entry.State = 'session à rouvrir'
       if (Get-AccountClient $account) { $entry.State = 'connexion en cours'; continue }
       # One session per pass: a Roblox start is heavy, and staggering them is

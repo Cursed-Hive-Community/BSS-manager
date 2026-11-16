@@ -166,6 +166,24 @@ visible with administrator rights (the window has them).
 - Closing the window changes nothing: the window is a dashboard, the
   supervisor (a scheduled task) does the work.
 
+# The local account
+
+*Compte local (ma session)...* picks one account, from a list, to run in
+the owner's own session instead of an RDP session: one session less to
+pay for. Its Roblox account, role and macro move to an entry for the
+owner's Windows account; the account it came from is made inactive and
+its RDP session closed (not deleted). Only one account can be local.
+
+What differs for it: the owner's own Roblox must be signed in with that
+account and gets the settings Natro needs; Natro takes the keyboard and
+mouse of the owner's session while it runs (pause the account to use the
+PC); the screen resolution is the owner's. It is protected: BSS Manager
+never logs the owner off (stopping it stops Natro and Roblox only), never
+changes or stores the owner's password, never deletes the owner's Windows
+account and never changes the owner's Edge or privacy settings. During a
+Roblox window the owner's Roblox is closed like the others, since it is
+the local account's.
+
 # Status page
 
 With `StatusServerEnabled`, `http://<PC>:47700/status` answers a read-only

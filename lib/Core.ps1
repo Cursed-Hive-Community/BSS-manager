@@ -175,6 +175,7 @@ function Get-BssConfig {
         $a | Add-Member -NotePropertyName Roblox -NotePropertyValue ([string](Get-RobloxSignedIn $a.Name))
       }
       if (-not ($a.PSObject.Properties.Name -contains 'Role')) { $a | Add-Member -NotePropertyName Role -NotePropertyValue '' }
+      if (-not ($a.PSObject.Properties.Name -contains 'Local')) { $a | Add-Member -NotePropertyName Local -NotePropertyValue $false }
     }
     return $cfg
   }
@@ -204,6 +205,9 @@ function New-AccountEntry {
     Name      = $Name
     Roblox    = $Roblox
     Role      = $Role
+    # True for the one account that runs in the owner's own session (no
+    # RDP session, no extra Windows account).
+    Local     = $false
     Enabled   = $true
     Paused    = $false
     Ip        = (Get-NextLoopbackIp $Cfg)

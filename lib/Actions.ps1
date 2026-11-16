@@ -200,8 +200,9 @@ function Open-RobloxForSignIn {
     [void](Start-InAccountSession $Account 'RobloxOpen' $exe.FullName '')
   }
   # Natro's browser fallback needs the roblox.com sign-in too, which is
-  # separate from the app's: open its login page in the same go.
-  Set-AccountEdgeQuiet $Account
+  # separate from the app's: open its login page in the same go. The
+  # owner's own Edge (local account) keeps its settings.
+  if (-not $Account.Local) { Set-AccountEdgeQuiet $Account }
   $edge = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe' -ErrorAction SilentlyContinue).'(default)'
   if ($edge -and (Test-Path $edge)) { [void](Start-InAccountSession $Account 'RobloxWeb' $edge 'https://www.roblox.com/login') }
   Write-Log "$($Account.Name) : Roblox et la page roblox.com ouverts dans sa session, connecte-toi aux deux (une fois)." OK
@@ -305,7 +306,7 @@ function Set-AccountRobloxNames {
 # Applies the common password to every managed Windows account.
 function Set-CommonPasswordOnAll {
   param($Cfg)
-  foreach ($a in @($Cfg.Accounts | Where-Object { Get-LocalUser -Name $_.Name -ErrorAction SilentlyContinue })) {
+  foreach ($a in @($Cfg.Accounts | Where-Object { -not $_.Local -and $_.Name -ne $env:USERNAME -and (Get-LocalUser -Name $_.Name -ErrorAction SilentlyContinue) })) {
     try { Set-AccountCommonPassword $a } catch { Write-Log "$($a.Name) : $($_.Exception.Message)" ERROR }
   }
 }
@@ -352,6 +353,7 @@ function Set-AccountPasswordValue {
   param($Cfg, [string] $Name, [Security.SecureString] $Password, [bool] $ChangeWindows)
   $a = Get-AccountByName $Cfg $Name
   if (-not $Password -or $Password.Length -eq 0) { throw 'Mot de passe vide.' }
+  if ($a.Local -or $Name -eq $env:USERNAME) { throw "$Name est ton propre compte Windows : BSS Manager n'enregistre ni ne change son mot de passe." }
   if ($ChangeWindows) {
     Set-LocalUser -Name $Name -Password $Password
     Write-Log "Mot de passe Windows de $Name changé." OK
@@ -373,16 +375,74 @@ function Set-AccountFlag {
   Write-Log "$Name $text." OK
 }
 
+# ---------------------------------------------------------------------------
+# The local account: one account run in the owner's own session
+# ---------------------------------------------------------------------------
+# An RDP session costs memory and GPU; the owner's session is there anyway.
+# Choosing an account moves its Roblox account, role and macro into an
+# entry for the owner's Windows account, and excludes the account it came
+# from (its RDP session is what is saved; it is not deleted).
+
+# Config change only, no side effect, so it can be tested. $SourceName
+# empty removes the local account. Returns the entry that left the local
+# role (to stop) and the account whose session to close.
+function Set-LocalAccountConfig {
+  param($Cfg, [string] $SourceName, [string] $Owner)
+  $previous = $Cfg.Accounts | Where-Object { $_.Local } | Select-Object -First 1
+  $result = @{ Previous = $previous; Close = $null; Local = $null }
+  $Cfg.Accounts = @($Cfg.Accounts | Where-Object { -not $_.Local })
+  if (-not $SourceName) { return $result }
+  $source = Get-AccountByName $Cfg $SourceName
+  $source.Enabled = $false
+  $local = [pscustomobject]@{
+    Name      = $Owner
+    Roblox    = [string]$source.Roblox
+    Role      = [string]$source.Role
+    Local     = $true
+    Enabled   = $true
+    Paused    = $false
+    Ip        = ''
+    MacroPath = [string]$source.MacroPath
+  }
+  $Cfg.Accounts = @($Cfg.Accounts) + $local
+  $result.Close = $source
+  $result.Local = $local
+  return $result
+}
+
+function Set-LocalAccount {
+  param($Cfg, [string] $SourceName)
+  $r = Set-LocalAccountConfig $Cfg $SourceName $env:USERNAME
+  # The previous local account's Natro and Roblox stop; the session stays.
+  if ($r.Previous) { [void](Close-AccountSession $r.Previous) }
+  Save-BssConfig $Cfg
+  if ($r.Close) {
+    [void](Close-AccountSession $r.Close)
+    Sync-NatroTask $Cfg $r.Close
+    Write-Log "$($r.Close.Name) exclu, sa session RDP fermée : son compte tourne maintenant dans ta session." OK
+  }
+  if ($r.Local) {
+    Sync-NatroTask $Cfg $r.Local
+    $who = $(if ($r.Local.Roblox) { $r.Local.Roblox } else { 'le compte Roblox connecté dans ton Roblox' })
+    Write-Log "Compte local : $who, macro $(Split-Path $r.Local.MacroPath -Leaf), dans ta session. « Lancer » le démarre." OK
+  } else {
+    Write-Log 'Plus de compte local : ta session ne fait plus tourner de macro.' OK
+  }
+}
+
 function Remove-ManagedAccount {
   param($Cfg, [string] $Name, [bool] $DeleteWindowsAccount)
   $a = Get-AccountByName $Cfg $Name
   [void](Close-AccountSession $a)
   Unregister-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-NatroTaskName $a) -Confirm:$false -ErrorAction SilentlyContinue
-  [BssNative]::DeleteCred((Get-CredTarget $a))
+  if (-not $a.Local) { [BssNative]::DeleteCred((Get-CredTarget $a)) }
   $Cfg.Accounts = @($Cfg.Accounts | Where-Object { $_.Name -ne $Name })
   Save-BssConfig $Cfg
   Write-Log "$Name retiré de BSS Manager." OK
-  if ($DeleteWindowsAccount -and (Get-LocalUser -Name $Name -ErrorAction SilentlyContinue)) {
+  # The owner's own Windows account is never deleted, whatever is asked.
+  if ($DeleteWindowsAccount -and ($Name -eq $env:USERNAME -or $a.Local)) {
+    Write-Log "$Name est ton propre compte Windows : il n'est jamais supprimé." WARN
+  } elseif ($DeleteWindowsAccount -and (Get-LocalUser -Name $Name -ErrorAction SilentlyContinue)) {
     Remove-LocalUser -Name $Name
     Write-Log "Compte Windows $Name supprimé (le dossier C:\Users\$Name reste sur le disque)." OK
   }
@@ -509,7 +569,8 @@ function Install-Manager {
     Sync-NatroTask $Cfg $a
     if ($a.MacroPath) { Add-MacroFirewallRules $a.MacroPath }
     # Only reaches accounts whose session is open (their hive is loaded).
-    Set-AccountEdgeQuiet $a
+    # The owner's own Edge is never changed.
+    if (-not $a.Local) { Set-AccountEdgeQuiet $a }
   }
   Start-SupervisorTask
 }
@@ -545,7 +606,7 @@ function Get-AccountRows {
     [pscustomobject]@{
       Roblox      = $(if ($a.Roblox) { $a.Roblox } else { '(1re connexion)' })
       'Rôle'      = [string]$a.Role
-      Compte      = $a.Name
+      Compte      = $(if ($a.Local) { "$($a.Name) (ma session)" } else { $a.Name })
       'Connecté'  = [string](Get-RobloxSignedIn $a.Name)
       Actif       = $(if ($a.Enabled) { 'oui' } else { 'non' })
       Pause       = $(if ($a.Paused) { 'oui' } else { '' })

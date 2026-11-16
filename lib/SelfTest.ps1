@@ -319,6 +319,37 @@ function Invoke-SelfTest {
         ((Get-StatusVerdict $on 'Ready' $false $false)[1] -like '*planté*')
     }
 
+    Add-Check 'Local account: moved into the owner''s session, source excluded, only one, removable' {
+      $mk = { param($n, $r) [pscustomobject]@{ Name = $n; Roblox = $r; Role = ''; Local = $false; Enabled = $true; Paused = $false; Ip = '127.0.0.9'; MacroPath = "G:\x\Natro_Macro_$r" } }
+      $cfgFake = [pscustomobject]@{ Accounts = @((& $mk 'PlayerAlt3' 'PlayerAlt3'), (& $mk 'PlayerAlt2' 'PlayerAlt2')) }
+      $r1 = Set-LocalAccountConfig $cfgFake 'PlayerAlt3' 'owner'
+      $local1 = @($cfgFake.Accounts | Where-Object { $_.Local })
+      $okFirst = ($local1.Count -eq 1) -and ($local1[0].Name -eq 'owner') -and ($local1[0].Roblox -eq 'PlayerAlt3') -and
+        ($local1[0].MacroPath -like '*Natro_Macro_PlayerAlt3') -and ($r1.Close.Name -eq 'PlayerAlt3') -and
+        -not (Get-AccountByName $cfgFake 'PlayerAlt3').Enabled
+      $r2 = Set-LocalAccountConfig $cfgFake 'PlayerAlt2' 'owner'
+      $local2 = @($cfgFake.Accounts | Where-Object { $_.Local })
+      $okSwitch = ($local2.Count -eq 1) -and ($local2[0].Roblox -eq 'PlayerAlt2') -and ($r2.Previous.Roblox -eq 'PlayerAlt3')
+      $r3 = Set-LocalAccountConfig $cfgFake '' 'owner'
+      $okNone = (@($cfgFake.Accounts | Where-Object { $_.Local }).Count -eq 0) -and ($null -eq $r3.Close) -and ($cfgFake.Accounts.Count -eq 2)
+      $okFirst -and $okSwitch -and $okNone
+    }
+
+    Add-Check 'The owner''s password is never set, whatever the button' {
+      $local = [pscustomobject]@{ Name = $env:USERNAME; Local = $true; Ip = '' }
+      $refused = $false
+      try { Set-AccountCommonPassword $local } catch { $refused = $_.Exception.Message -like '*propre compte*' }
+      $refused
+    }
+
+    Add-Check 'Owner''s Roblox closable during updates only when allowed or when it is the local account''s' {
+      $none = [pscustomobject]@{ CloseOwnerRobloxForUpdates = $false; Accounts = @() }
+      $allowed = [pscustomobject]@{ CloseOwnerRobloxForUpdates = $true; Accounts = @() }
+      $withLocal = [pscustomobject]@{ CloseOwnerRobloxForUpdates = $false; Accounts = @([pscustomobject]@{ Local = $true; Enabled = $true }) }
+      $inactiveLocal = [pscustomobject]@{ CloseOwnerRobloxForUpdates = $false; Accounts = @([pscustomobject]@{ Local = $true; Enabled = $false }) }
+      -not (Test-OwnerRobloxClosable $none) -and (Test-OwnerRobloxClosable $allowed) -and (Test-OwnerRobloxClosable $withLocal) -and -not (Test-OwnerRobloxClosable $inactiveLocal)
+    }
+
     Add-Check 'New macro: invalid or already existing names are refused before anything is created' {
       $fake = [pscustomobject]@{ MacroRoot = $tmp; DefaultBranch = 'main'; DefaultRepoUrl = '' }
       New-Item -ItemType Directory -Path (Join-Path $tmp 'Natro_Macro_Taken') | Out-Null
