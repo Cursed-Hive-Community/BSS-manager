@@ -178,10 +178,12 @@ function Open-RobloxForSignIn {
     if (-not (Wait-Until { Test-SessionConnected (Get-AccountSession $Account) } 120 5)) { throw "$($Account.Name) : la session ne s'ouvre pas." }
   }
   $session = Get-AccountSession $Account
+  # Signed in already: the app is left alone, since starting it again could
+  # disturb a running macro; only the web sign-in page is opened.
   if (-not (Get-RobloxSignedIn $Account.Name)) {
     Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
+    [void](Start-InAccountSession $Account 'RobloxOpen' $exe.FullName '')
   }
-  [void](Start-InAccountSession $Account 'RobloxOpen' $exe.FullName '')
   # Natro's browser fallback needs the roblox.com sign-in too, which is
   # separate from the app's: open its login page in the same go.
   Set-AccountEdgeQuiet $Account
