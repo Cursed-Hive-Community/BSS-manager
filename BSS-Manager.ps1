@@ -20,6 +20,7 @@
   BSS-Manager.ps1 -Action SetBranch -Path <dir> -Branch main
   BSS-Manager.ps1 -Action AddRoblox -Roblox PlayerAlt4 [-Role x] [-WindowsUser x] [-Path <base macro>]
   BSS-Manager.ps1 -Action AddRoblox -Role GuidingALT1  # Roblox account learnt at first sign-in
+  BSS-Manager.ps1 -Action OpenRoblox -Account GuidingALT1  # open Roblox to sign in
   BSS-Manager.ps1 -Action SelfTest                 # checks, no admin needed
 
 .LINK
@@ -27,7 +28,7 @@
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('Gui', 'Menu', 'Status', 'Start', 'Stop', 'Restart', 'Update', 'UpdateMacros', 'SetBranch', 'AddRoblox', 'Supervise', 'Install', 'Uninstall', 'SelfTest')]
+  [ValidateSet('Gui', 'Menu', 'Status', 'Start', 'Stop', 'Restart', 'Update', 'UpdateMacros', 'SetBranch', 'AddRoblox', 'OpenRoblox', 'Supervise', 'Install', 'Uninstall', 'SelfTest')]
   [string] $Action = 'Gui',
   [string[]] $Account,
   [string] $Path,
@@ -87,6 +88,7 @@ try {
     'Update'       { if (-not (Update-RdpWrapper $cfg)) { exit 2 } }
     'UpdateMacros' { if ($Path) { Update-Macros $cfg -Paths @($Path) } else { Update-Macros $cfg $Account } }
     'SetBranch'    { if (-not ($Path -and $Branch)) { throw '-Path et -Branch sont obligatoires.' }; Set-MacroBranch $cfg $Path $Branch }
+    'OpenRoblox'   { foreach ($a in @(Select-Accounts $cfg $Account -IncludeDisabled)) { Open-RobloxForSignIn $cfg $a } }
     'AddRoblox'    { if (-not ($Roblox -or $Role)) { throw '-Roblox ou -Role est obligatoire.' }; Add-RobloxAccount $cfg $Roblox $Role $WindowsUser $Path }
     'Supervise'    { Invoke-Supervisor }
     'Install'      { Install-Manager $cfg }

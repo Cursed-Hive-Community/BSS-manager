@@ -466,9 +466,9 @@ function Show-UiAddRobloxWizard {
   $f.StartPosition = 'CenterParent'
   $f.Font = $Script:Ui.Form.Font
 
-  $intro = New-UiLabel ("Coche les comptes à préparer et choisis le dossier de base. « Compte Roblox » : le nom exact s'il est connu ; " +
-    "vide pour un rôle dont tu ne connais pas le compte (il sera retenu à ta première connexion). Le compte Windows et la macro prennent " +
-    "le nom du compte Roblox, ou celui du rôle s'il est vide. Pour chacun : compte Windows (mot de passe commun), macro propre sur " +
+  $intro = New-UiLabel ("Coche les comptes à préparer et choisis le dossier de base. « Compte Roblox » est facultatif : laissé vide, " +
+    "il est retenu à ta première connexion. Tape-le seulement si tu le connais avec certitude. Le compte Windows et la macro prennent " +
+    "le nom du compte Roblox s'il est tapé, sinon celui du rôle. Pour chacun : compte Windows (mot de passe commun), macro propre sur " +
     "$($cfg.DefaultBranch) avec les réglages du dossier de base, ancien dossier rangé dans $($Script:ArchiveFolderName), session ouverte, " +
     "Roblox installé. Il te restera à te connecter à Roblox dans chaque session.")
   $intro.MaximumSize = New-Object Drawing.Size(950, 0)
@@ -498,9 +498,12 @@ function Show-UiAddRobloxWizard {
     param([string] $Roblox, [object[]] $Candidates)
     $i = $grid.Rows.Add()
     $row = $grid.Rows[$i]
+    # The folder name may be a role (GuidingALT1), so the Roblox account is
+    # left empty and learnt at the first sign-in unless the owner types it:
+    # a wrong guess there would block the macro.
     $row.Cells[0].Value = [bool]$Roblox
     $row.Cells[1].Value = $Roblox
-    $row.Cells[2].Value = $Roblox
+    $row.Cells[2].Value = ''
     $cell = $row.Cells[3]
     foreach ($m in $Candidates) {
       $label = Format-MacroLabel $m
@@ -651,6 +654,7 @@ function New-UiAccountsTab {
     (New-UiButton 'Arrêter' { Invoke-UiAccountAction 'Stop' 'Arrêter' $true }),
     (New-UiButton 'Relancer la macro' { Invoke-UiAccountAction 'Restart' 'Relancer la macro de' $true }),
     (New-UiButton 'Ouvrir la session' { Open-UiSession }),
+    (New-UiButton 'Ouvrir Roblox' { Invoke-UiAccountAction 'OpenRoblox' 'Ouvrir Roblox pour' $false }),
     (New-UiButton 'Reprendre la préparation' { Resume-UiSetup }),
     (New-UiButton 'Pause / reprendre' { Switch-UiAccountFlag 'Paused' }),
     (New-UiButton 'Inclure / exclure' { Switch-UiAccountFlag 'Enabled' }),

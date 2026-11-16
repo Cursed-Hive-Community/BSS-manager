@@ -217,8 +217,8 @@ function Get-RobloxSignInProblem {
   param([string] $Expected, [string] $SignedIn, [bool] $Installed)
   if (-not $SignedIn) {
     if (-not $Installed) { return 'Roblox pas installé dans la session' }
-    if ($Expected) { return "connecte-toi à Roblox avec $Expected dans la session" }
-    return 'connecte-toi à Roblox dans la session'
+    if ($Expected) { return "connecte-toi à Roblox avec $Expected (bouton « Ouvrir Roblox »)" }
+    return 'connecte-toi à Roblox (bouton « Ouvrir Roblox »)'
   }
   if ($Expected -and $SignedIn -ne $Expected) { return "mauvais compte Roblox ($SignedIn au lieu de $Expected)" }
   return ''
@@ -275,6 +275,45 @@ function Set-AccountCommonPassword {
 function Get-AccountDescription {
   param([string] $Roblox)
   return "BSS Manager: $Roblox"
+}
+
+# ---------------------------------------------------------------------------
+# Privacy: no questions, every per-account choice off
+# ---------------------------------------------------------------------------
+# DisablePrivacyExperience skips the "choose privacy settings" screen at a
+# new account's first sign-in; it changes no setting of existing accounts.
+# https://learn.microsoft.com/windows/client-management/mdm/policy-csp-privacy#disableprivacyexperience
+function Disable-PrivacyPrompt {
+  $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE'
+  if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+  New-ItemProperty -Path $key -Name DisablePrivacyExperience -Value 1 -PropertyType DWord -Force | Out-Null
+}
+
+# The per-account answers of that screen, set to "no" in the account's own
+# registry hive (loaded while its session is open). Device-wide choices
+# (diagnostic data, Find my device, the location service itself) stay as
+# the owner set them for the PC.
+function Set-AccountPrivacyOff {
+  param($Account)
+  $sid = (Get-LocalUser -Name $Account.Name).SID.Value
+  $hive = "Registry::HKEY_USERS\$sid"
+  if (-not (Test-Path $hive)) { Write-Log "$($Account.Name) : session pas chargée, confidentialité non réglée." WARN; return }
+  $values = @(
+    @('Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo', 'Enabled', 0, 'DWord'),
+    @('Software\Microsoft\Windows\CurrentVersion\Privacy', 'TailoredExperiencesWithDiagnosticDataEnabled', 0, 'DWord'),
+    @('Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\location', 'Value', 'Deny', 'String'),
+    @('Software\Microsoft\InputPersonalization', 'RestrictImplicitInkCollection', 1, 'DWord'),
+    @('Software\Microsoft\InputPersonalization', 'RestrictImplicitTextCollection', 1, 'DWord'),
+    @('Software\Microsoft\InputPersonalization\TrainedDataStore', 'HarvestContacts', 0, 'DWord'),
+    @('Software\Microsoft\Personalization\Settings', 'AcceptedPrivacyPolicy', 0, 'DWord'),
+    @('Software\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy', 'HasAccepted', 0, 'DWord')
+  )
+  foreach ($v in $values) {
+    $key = Join-Path $hive $v[0]
+    if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+    New-ItemProperty -Path $key -Name $v[1] -Value $v[2] -PropertyType $v[3] -Force | Out-Null
+  }
+  Write-Log "$($Account.Name) : confidentialité réglée sur non (publicité, localisation, saisie, reconnaissance vocale)." OK
 }
 
 function Test-ValidAccountName {

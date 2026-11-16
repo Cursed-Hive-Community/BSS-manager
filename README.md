@@ -99,10 +99,15 @@ Adding an account runs every step, each skipped when already done, so
    from a Cursed instance with the fork's `nm-new-instance.ps1`, the base
    folder's `settings` are copied in, it is updated to `DefaultBranch`, and
    the base folder is moved to `_Anciennes`.
-3. Session opened once, which builds the Windows profile.
+3. Session opened once, which builds the Windows profile, without
+   Windows' privacy questions (policy `DisablePrivacyExperience`); the
+   account's own privacy choices are then set to off. Device-wide ones stay
+   as set for the PC.
 4. Roblox installed in that session from roblox.com, only if the installer
-   carries a valid Roblox Corporation signature.
-5. You sign in to Roblox in that session, by hand, once.
+   carries a valid Roblox Corporation signature, then opened.
+5. You sign in to Roblox in that session, by hand, once (*Ouvrir Roblox*
+   opens it again if needed). The supervisor starts the macro about two
+   minutes later.
 
 The Roblox account signed in is read from
 `%LOCALAPPDATA%\Roblox\LocalStorage\appStorage.json` in each profile. An

@@ -28,9 +28,17 @@ Versioning[^semver].
 - One common password, chosen by the owner, for every macro account, with
   buttons to set it and apply it to existing accounts.
 
+- No Windows privacy questions for new macro accounts, and their
+  per-account privacy choices set to off.
+- *Ouvrir Roblox*: opens the Roblox app in an account's session to sign in;
+  the preparation does it after installing Roblox.
+
 ## Changed
 
 - The text menu moved to `-Action Menu`.
+- The assistant leaves the Roblox account empty (learnt at the first
+  sign-in): a role prefilled there blocked GuidingALT1's macro.
+- Preparing an account excludes any other account using the same macro.
 - Sessions are 1920x1080 by default.
 - Old macros are no longer converted in place: a clean folder is created.
 
@@ -43,6 +51,8 @@ Versioning[^semver].
 
 ## Fixed
 
+- The Roblox installer is waited for until it ends; stopping when its first
+  file appeared could leave an invisible Roblox behind.
 - `rdpwrap.ini` is always installed with CRLF line endings, and an installed
   LF file is converted. rdpwrap.dll reads no section from an LF file, which
   left Windows at one session ("all connections are in use").

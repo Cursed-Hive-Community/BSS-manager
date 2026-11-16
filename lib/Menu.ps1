@@ -58,14 +58,12 @@ function Add-RobloxAccountMenu {
   $candidates = @()
   $guess = ''
   if ($i -lt $suggestions.Count) { $guess = $suggestions[$i].Roblox; $candidates = $suggestions[$i].Candidates }
-  $roblox = (Read-Host "Compte Roblox exact (Entrée = $(if ($guess) { $guess } else { 'inconnu, retenu à la 1re connexion' }), « - » = inconnu)").Trim()
-  if (-not $roblox) { $roblox = $guess }
-  if ($roblox -eq '-') { $roblox = '' }
-  $role = ''
-  if (-not $roblox -or ($guess -and $roblox -ne $guess)) {
-    $role = (Read-Host "Rôle (Entrée = $guess)").Trim()
-    if (-not $role) { $role = $guess }
-  }
+  # Empty by default: the folder name may be a role, and a wrong guess here
+  # would block the macro. Left empty, it is learnt at the first sign-in.
+  $role = $guess
+  if (-not $role) { $role = (Read-Host 'Rôle ou nom du dossier').Trim() }
+  $roblox = (Read-Host 'Compte Roblox exact (Entrée = inconnu, retenu à la 1re connexion)').Trim()
+  if ($roblox -eq $role) { $role = '' }
   if (-not (Test-CommonPassword)) {
     Write-Host 'Choisis le mot de passe commun des comptes macro (Windows le demande parfois).' -ForegroundColor Cyan
     Set-CommonPassword (Read-NewPassword 'les comptes macro')

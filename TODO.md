@@ -38,6 +38,14 @@ What is proven, by which kind of evidence, and what is not.
       `_Anciennes`, first sign-in, certificate approval, signed Roblox
       installer through the one-shot task, Roblox sign-in detected, Natro
       started (12:24-12:26)
+- [x] `AddRoblox` with the common password and a role (GuidingALT1,
+      12:42); its Roblox account learnt by the window at the first sign-in
+      (PlayerAlt1, 12:54); the other account on the same macro
+      (Roblox2) excluded
+- [x] the supervisor saw GuidingALT1 ready and started Natro after its
+      2-minute grace (12:58), Natro running at 12:59
+- [x] per-account privacy set to off in a signed-in account's hive
+      (GuidingALT1, PlayerAlt2)
 
 # Loads, never driven
 
@@ -45,10 +53,10 @@ Parsed and loaded, but nobody has run these yet:
 
 - [ ] window buttons and dialogs, clicked by a person (only the rendering
       is proven)
-- [ ] `AddRoblox` with the common password and with a role only (Roblox
-      account learnt at the first sign-in)
-- [ ] supervisor registers the Natro task and starts Natro once the Roblox
-      sign-in is detected
+- [ ] Windows' privacy screen skipped at a new account's first sign-in
+      (policy set and readable; no new account signed in since)
+- [ ] the installer waited for to its end, then Roblox opened visibly for
+      the sign-in (GuidingALT1 was already signed in when it ran)
 - [ ] 1920x1080 sessions on this PC's screen (window larger than the
       screen?)
 - [ ] one-click start opens the sessions without a password prompt

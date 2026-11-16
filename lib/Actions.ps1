@@ -126,27 +126,62 @@ function Get-RobloxInstaller {
   return $file
 }
 
-# Runs the installer inside the account's own session (Roblox installs per
-# user), through a one-shot task with an Interactive principal.
+# Runs a program once in the account's own desktop session, through a task
+# with an Interactive principal. The task is kept (replaced on the next run)
+# rather than deleted, since deleting a running task can end its process.
+# https://learn.microsoft.com/windows/win32/taskschd/principal-logontype
+function Start-InAccountSession {
+  param($Account, [string] $Purpose, [string] $Program, [string] $Arguments)
+  $name = "$Purpose-$($Account.Name)"
+  $principal = New-ScheduledTaskPrincipal -UserId (Get-QualifiedUser $Account.Name) -LogonType Interactive -RunLevel Limited
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+  $action = $(if ($Arguments) { New-ScheduledTaskAction -Execute $Program -Argument $Arguments } else { New-ScheduledTaskAction -Execute $Program })
+  Register-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -Action $action -Principal $principal -Settings $settings `
+    -Description "$Purpose for $($Account.Name) (BSS Manager)" -Force | Out-Null
+  Start-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name
+  return $name
+}
+
+# The installer is waited for until its task ends, not until the player file
+# appears: the file shows up before the installer is done, and stopping
+# there left an invisible Roblox behind (GuidingALT1, 2026-11-16).
 function Install-RobloxInSession {
   param($Account)
   if (Test-RobloxInstalled $Account.Name) { Write-Log "$($Account.Name) : Roblox déjà installé."; return $true }
   $installer = Get-RobloxInstaller
-  $user = Get-QualifiedUser $Account.Name
-  $name = "RobloxSetup-$($Account.Name)"
-  $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
-  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
-  Register-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -Action (New-ScheduledTaskAction -Execute $installer) `
-    -Principal $principal -Settings $settings -Description 'One-shot Roblox install (BSS Manager)' -Force | Out-Null
-  try {
-    Write-Log "$($Account.Name) : installation de Roblox dans sa session..."
-    Start-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name
-    $done = Wait-Until { Test-RobloxInstalled $Account.Name } 600 10
-  } finally {
-    Unregister-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
-  }
+  Write-Log "$($Account.Name) : installation de Roblox dans sa session..."
+  $task = Start-InAccountSession $Account 'RobloxSetup' $installer ''
+  Start-Sleep -Seconds 5
+  $finished = Wait-Until { (Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $task).State -ne 'Running' } 900 10
+  $done = Test-RobloxInstalled $Account.Name
   if ($done) { Write-Log "$($Account.Name) : Roblox installé." OK }
+  elseif (-not $finished) { Write-Log "$($Account.Name) : l'installateur Roblox tourne encore après 15 minutes." WARN }
   return $done
+}
+
+# Opens the Roblox app in the account's session the way its Start menu
+# shortcut does (RobloxPlayerBeta.exe, no argument), so the owner can sign
+# in. A Roblox already running there while nobody is signed in is a hidden
+# leftover that would swallow the new start, so it is stopped first.
+function Open-RobloxForSignIn {
+  param($Cfg, $Account)
+  $profilePath = Get-UserProfilePath $Account.Name
+  $exe = $null
+  if ($profilePath) {
+    $exe = Get-ChildItem (Join-Path $profilePath 'AppData\Local\Roblox\Versions') -Filter 'RobloxPlayerBeta.exe' -Recurse -ErrorAction SilentlyContinue |
+      Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  }
+  if (-not $exe) { throw "$($Account.Name) : Roblox n'est pas installé dans sa session." }
+  if (-not (Test-SessionConnected (Get-AccountSession $Account))) {
+    [void](Open-AccountSession $Cfg $Account)
+    if (-not (Wait-Until { Test-SessionConnected (Get-AccountSession $Account) } 120 5)) { throw "$($Account.Name) : la session ne s'ouvre pas." }
+  }
+  $session = Get-AccountSession $Account
+  if (-not (Get-RobloxSignedIn $Account.Name)) {
+    Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
+  }
+  [void](Start-InAccountSession $Account 'RobloxOpen' $exe.FullName '')
+  Write-Log "$($Account.Name) : Roblox ouvert dans sa session, connecte-toi." OK
 }
 
 # Every step needed for one Roblox account, each skipped when already done,
@@ -196,14 +231,23 @@ function Add-RobloxAccount {
   Save-BssConfig $Cfg
 
   $account.MacroPath = New-CleanMacro $Cfg $label $SourcePath
+  # Two accounts on one macro folder would share and overwrite its settings.
+  foreach ($other in @($Cfg.Accounts | Where-Object { $_.Name -ne $WindowsUser -and $_.MacroPath -eq $account.MacroPath -and $_.Enabled })) {
+    $other.Enabled = $false
+    Write-Log "$($other.Name) exclu : sa macro $(Split-Path $account.MacroPath -Leaf) appartient maintenant à $WindowsUser." WARN
+  }
   Save-BssConfig $Cfg
 
+  # Before the first sign-in, or Windows asks its privacy questions.
+  Disable-PrivacyPrompt
   if (-not (Test-SessionConnected (Get-AccountSession $account))) { [void](Open-AccountSession $Cfg $account) }
   # The first sign-in builds the Windows profile, which can take a minute.
   if (-not (Wait-Until { (Test-SessionConnected (Get-AccountSession $account)) -and (Get-UserProfilePath $WindowsUser) } 300 5)) {
     throw "La session de $WindowsUser ne s'est pas ouverte en 5 minutes."
   }
-  if (-not (Install-RobloxInSession $account)) { throw "Roblox ne s'est pas installé dans la session de $WindowsUser en 10 minutes." }
+  Set-AccountPrivacyOff $account
+  if (-not (Install-RobloxInSession $account)) { throw "Roblox ne s'est pas installé dans la session de $WindowsUser." }
+  if (-not (Get-RobloxSignedIn $WindowsUser)) { Open-RobloxForSignIn $Cfg $account }
 
   [void](Update-LearnedRobloxNames $Cfg)
   if (-not (Get-AccountReadiness $account)) {
@@ -402,6 +446,7 @@ function Install-Manager {
   $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
   Set-ManagerAcl $root
+  Disable-PrivacyPrompt
   if ($Cfg.InboxEnabled) {
     if (-not (Test-Path $Script:Bss.InboxDir)) { New-Item -ItemType Directory -Path $Script:Bss.InboxDir | Out-Null }
     & icacls.exe $Script:Bss.InboxDir /grant '*S-1-5-32-555:(OI)(CI)M' | Out-Null

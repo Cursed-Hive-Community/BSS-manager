@@ -148,7 +148,7 @@ function Invoke-SelfTest {
         ((Get-RobloxSignInProblem 'PlayerAlt2' 'PLAYERALT2' $true) -eq '') -and
         ((Get-RobloxSignInProblem 'PlayerAlt2' 'PlayerAlt4' $true) -like 'mauvais compte*') -and
         ((Get-RobloxSignInProblem '' '' $false) -eq 'Roblox pas installé dans la session') -and
-        ((Get-RobloxSignInProblem '' '' $true) -eq 'connecte-toi à Roblox dans la session')
+        ((Get-RobloxSignInProblem '' '' $true) -like 'connecte-toi à Roblox*')
     }
 
     Add-Check 'A macro named after the role is accepted (GuidingALT2 played by PlayerAlt2)' {
