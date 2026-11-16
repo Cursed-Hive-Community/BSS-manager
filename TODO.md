@@ -48,6 +48,14 @@ What is proven, by which kind of evidence, and what is not.
       (GuidingALT1, PlayerAlt2)
 - [x] PlayerAlt3's missing roblox:// keys registered; after a Natro restart
       the owner saw Natro detect "Web Version" instead of "Not Found"
+- [x] Roblox's installer fails ("FailFast ... failed to access client
+      process info: Accès refusé") whenever another account's Roblox runs
+      on the PC: PlayerAlt2 installed alone and works; GuidingALT1 (12:42)
+      and PlayerAlt3 (1 install and 5 updates) crashed while PlayerAlt2
+      played; the update also crashed started from the desktop, so the
+      task scheduler is not the cause; and with every Roblox closed,
+      PlayerAlt3's update succeeded in 11 s (15:26) and Roblox registered
+      roblox:// itself, pointing at the new version-4951a2e067db4f6d
 - [x] a brand-new account end to end (PlayerAlt3, 13:04-13:08): installer
       waited for to its end (52 s), Roblox opened and shown, macro started
       by the supervisor after the sign-in; three macros running together
@@ -67,15 +75,10 @@ Parsed and loaded, but nobody has run these yet:
       roblox.com without asking, in a macro account
 - [ ] Natro's browser fallback (every fifth reconnect attempt) joins the
       private server once the account is signed in on roblox.com
-- [ ] Natro in PlayerAlt3 joins its server through roblox://. Roblox's own
-      logs show its installer crashing ("FailFast ... failed to access
-      client process info: Accès refusé") right after "Launcher set", both
-      at the first install (14:54, started by our one-shot task) and at a
-      forced update (15:16, started by Roblox under Natro, itself started
-      by its task). That crash is why the roblox:// keys were missing; the
-      earlier guess (a Roblox stopped too early) was wrong. Open question:
-      task-scheduler context, or the account recreated under the same
-      name. Decisive test: the same update started from the desktop.
+- [ ] Natro in PlayerAlt3 joins its server after its Roblox update
+- [ ] GuidingALT1 updated the same way (its install crashed at 12:42 while
+      PlayerAlt2 played; its roblox:// keys are still missing)
+- [ ] coordinated Roblox installs and updates (not built yet)
 - [ ] Roblox settings written in a macro account and kept after Natro
       reopens Roblox (tested on a copy of the owner's real file only: 6
       values changed, Natro's own checks find nothing left)
