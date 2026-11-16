@@ -270,8 +270,21 @@ any other action, an unknown account or a file over 4 KB.
   Credential Manager; the auto-logon password is an LSA secret, as
   Sysinternals Autologon stores it[^autologon]. None is written to a file or
   a log.
-- Updates run the fork's scripts with administrator rights: trust the
-  repository a macro follows.
+- Updates run git and the fork's scripts with administrator rights: trust
+  the repository a macro follows. So that no macro account can slip its
+  own code into them, *Install / repair* sets the macro folder's rights:
+  only administrators add folders to it, each macro is writable by its own
+  active Windows account (and by the owner), and its `tools\` and `.git`
+  are writable by administrators only, except `tools\OCR_debug` where
+  Natro saves diagnostics. Assigning a macro, switching an account active
+  or inactive, and the local account update these rights. Adding a folder
+  by hand to the macro folder now needs an administrator (Explorer asks).
+- The status page needs no password and is reachable from private
+  networks only. It shows Roblox account names and states, never a
+  password or an address.
+- `rdpwrap.ini` comes from a third-party repository and decides which
+  bytes of `termsrv.dll` get patched; it is only fetched when Windows
+  updates `termsrv.dll`.
 
 # Files
 

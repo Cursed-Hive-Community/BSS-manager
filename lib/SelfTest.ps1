@@ -358,6 +358,38 @@ function Invoke-SelfTest {
       $refused -eq 3
     }
 
+    Add-Check 'Macro folder rights: own active account writes, tools\ and .git administrators only' {
+      $dir = Join-Path $tmp 'Natro_Macro_AclTest'
+      foreach ($sub in 'submacros', 'tools', '.git', 'settings') { New-Item -ItemType Directory -Path (Join-Path $dir $sub) -Force | Out-Null }
+      Set-Content (Join-Path $dir 'submacros\natro_macro.ahk') ''
+      Set-Content (Join-Path $dir 'tools\nm-git-update.ps1') ''
+      $me = (Get-LocalUser -Name $env:USERNAME).SID.Value
+      $account = [pscustomobject]@{ Name = $env:USERNAME; Local = $false; Enabled = $true; MacroPath = $dir }
+      $fake = [pscustomobject]@{ Accounts = @($account) }
+      # Explicit entries only for the folder itself: the temp folder above
+      # already lets its owner write. tools\ and .git inherit nothing once
+      # protected, so all their entries count.
+      $writers = {
+        param([string] $Path, [bool] $Inherited = $true)
+        @((Get-Acl $Path).GetAccessRules($true, $Inherited, [Security.Principal.SecurityIdentifier]) |
+            Where-Object { $_.AccessControlType -eq 'Allow' -and ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]'WriteData, AppendData, Delete') } |
+            ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique)
+      }
+      try {
+        Set-MacroFolderAcl $fake $dir
+        $adminsOnly = @('S-1-5-18', 'S-1-5-32-544')
+        $okActive = ((& $writers $dir $false) -contains $me) -and ((& $writers (Join-Path $dir 'tools\OCR_debug') $false) -contains $me)
+        $okCode = @(foreach ($sub in 'tools', '.git', 'tools\nm-git-update.ps1') { & $writers (Join-Path $dir $sub) | Where-Object { $adminsOnly -notcontains $_ } }).Count -eq 0
+        $account.Enabled = $false
+        Set-MacroFolderAcl $fake $dir
+        $okInactive = (& $writers $dir $false) -notcontains $me
+        $okActive -and $okCode -and $okInactive
+      } finally {
+        # The test folder's owner may always reset its rights, then delete it.
+        & icacls.exe $dir /reset /T /C /Q | Out-Null
+      }
+    }
+
     Add-Check 'git is installed' { [bool](Get-Command git -ErrorAction SilentlyContinue) }
   } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

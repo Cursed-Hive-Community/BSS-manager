@@ -76,6 +76,17 @@ Versioning[^semver].
 - Random generated passwords: the owner needs to know the password, as
   Windows sometimes asks for it.
 
+## Security
+
+- Macro folders are no longer writable by every Windows account. Any
+  account (a macro account included) could change a macro's `tools\` or
+  `.git`, or add a fake macro folder, and so run its own code with
+  administrator rights at the next update. Now only administrators add
+  folders, each macro is writable by its own active account and the owner,
+  and `tools\` and `.git` by administrators only (except
+  `tools\OCR_debug`). Set by *Install / repair* and kept up to date when
+  macros or accounts change; checked again before every update.
+
 ## Fixed
 
 - Stopping the local account no longer logs "session closed": it says

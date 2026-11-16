@@ -261,6 +261,83 @@ function Test-MacroUpdating {
   return ((Test-Path $marker) -and ((Get-Item $marker).LastWriteTime -gt (Get-Date).AddMinutes(-$Script:UpdatingStaleMinutes)))
 }
 
+# ---------------------------------------------------------------------------
+# Folder rights
+# ---------------------------------------------------------------------------
+# The macro accounts run their macro, but BSS Manager updates it with
+# administrator rights: git, and the fork's tools\*.ps1. Any Windows account
+# able to change tools\ or .git, or to add a folder next to the macros, could
+# make that elevated update run its own code (the macro accounts share a
+# password the owner chose, and run third-party patterns). So:
+# - the root: administrators and SYSTEM change it, everyone reads, and the
+#   owner may change what is inside the folders without adding one;
+# - each macro folder: its own active Windows account may change it;
+# - tools\ and .git: administrators only, except tools\OCR_debug, where
+#   Natro saves its diagnostics while it runs.
+# https://learn.microsoft.com/windows-server/administration/windows-commands/icacls
+
+$Script:AdminOnlySubfolders = @('tools', '.git')
+$Script:NatroWritableSubfolder = 'tools\OCR_debug'
+
+function Get-OwnerSid {
+  return [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+}
+
+# tools\ and .git stop inheriting, so the folder's account loses its write
+# right there. Skipped when already done: re-propagating through .git takes
+# a while.
+function Protect-MacroCode {
+  param([string] $Path)
+  foreach ($name in $Script:AdminOnlySubfolders) {
+    $dir = Join-Path $Path $name
+    if (-not (Test-Path $dir) -or (Get-Acl $dir).AreAccessRulesProtected) { continue }
+    & icacls.exe $dir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /C /Q | Out-Null
+  }
+}
+
+# Write rights inside one macro folder: its active, non-local accounts, plus
+# the owner (who runs the local account's Natro). Rights granted earlier are
+# reset first, so an account the macro was taken from loses them.
+function Set-MacroFolderAcl {
+  param($Cfg, [string] $Path)
+  if (-not (Test-NatroFolder $Path)) { return }
+  $sids = @(@($Cfg.Accounts | Where-Object { $_.MacroPath -eq $Path -and $_.Enabled -and -not $_.Local }) | ForEach-Object {
+      $user = Get-LocalUser -Name $_.Name -ErrorAction SilentlyContinue
+      if ($user) { $user.SID.Value }
+    })
+  & icacls.exe $Path /reset /C /Q | Out-Null
+  foreach ($sid in $sids) { & icacls.exe $Path /grant "*${sid}:(OI)(CI)M" /C /Q | Out-Null }
+  $debug = Join-Path $Path $Script:NatroWritableSubfolder
+  if ((Test-Path (Join-Path $Path 'tools')) -and -not (Test-Path $debug)) { New-Item -ItemType Directory -Path $debug | Out-Null }
+  Protect-MacroCode $Path
+  if (-not (Test-Path $debug)) { return }
+  & icacls.exe $debug /reset /C /Q | Out-Null
+  foreach ($sid in @($sids) + @(Get-OwnerSid)) { & icacls.exe $debug /grant "*${sid}:(OI)(CI)M" /C /Q | Out-Null }
+}
+
+function Set-MacroRootAcl {
+  param($Cfg)
+  $root = $Cfg.MacroRoot
+  if (-not $root -or -not (Test-Path $root)) { return }
+  $inherit = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+  $acl = New-Object Security.AccessControl.DirectorySecurity
+  $acl.SetAccessRuleProtection($true, $false)
+  foreach ($rule in @(
+      @('S-1-5-18', 'FullControl', 'None'),
+      @('S-1-5-32-544', 'FullControl', 'None'),
+      @('S-1-5-32-545', 'ReadAndExecute', 'None'),
+      @((Get-OwnerSid), 'Modify', 'InheritOnly'))) {
+    $sid = New-Object Security.Principal.SecurityIdentifier $rule[0]
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, $rule[1], $inherit, [Security.AccessControl.PropagationFlags]$rule[2], 'Allow')))
+  }
+  Set-Acl -Path $root -AclObject $acl
+  Write-Log "Rights of $root : only administrators add folders, each macro writable by its own account..."
+  # Children drop their own entries and inherit the list above.
+  & icacls.exe (Join-Path $root '*') /reset /T /C /Q | Out-Null
+  foreach ($m in @(Find-Macros $Cfg)) { Set-MacroFolderAcl $Cfg $m.Path }
+  Write-Log "Rights of $root set; tools\ and .git of each macro are administrators only." OK
+}
+
 function Invoke-ForkTool {
   param([string] $Script, [string[]] $Arguments)
   $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script @Arguments 2>&1
@@ -283,6 +360,7 @@ function Update-Macro {
   Set-Content -Path $marker -Value (Get-Date -Format o)
   try {
     Write-Log "Updating $(Split-Path $Path -Leaf) ($branch)..."
+    Protect-MacroCode $Path
     $code = Invoke-ForkTool $tool @('-Yes', '-NoRestart', '-Branch', $branch, '-RepoUrl', $repo)
     if ($code -ne 0) { Write-Log "Update of $(Split-Path $Path -Leaf) failed (code $code): the current version is kept." ERROR; return $false }
     Write-Log "$(Split-Path $Path -Leaf) is up to date." OK
@@ -294,6 +372,7 @@ function Update-Macro {
 
 function Get-RemoteBranches {
   param([string] $Path)
+  Protect-MacroCode $Path
   $git = @('-c', 'safe.directory=*', '-C', $Path)
   & git @git fetch --quiet --prune origin 2>$null
   return @(& git @git branch -r --format='%(refname:short)' 2>$null |
@@ -360,7 +439,7 @@ function New-CleanMacro {
   $source = $null
   if ($SourcePath) { $source = Get-MacroInfo $Cfg $SourcePath }
   if ($source -and $source.IsGit) {
-    Write-Log "$Roblox garde sa macro Cursed : $SourcePath"
+    Write-Log "$Roblox keeps its Cursed macro: $SourcePath"
     return $SourcePath
   }
   $target = Get-RobloxMacroPath $Cfg $Roblox
@@ -389,6 +468,7 @@ function New-MacroFolder {
   if (-not $template) { throw 'No Cursed macro with tools\nm-new-instance.ps1 to use as a template.' }
 
   Write-Log "Creating $target from $($template.Name)..."
+  Protect-MacroCode $template.Path
   $code = Invoke-ForkTool (Join-Path $template.Path 'tools\nm-new-instance.ps1') @('-Name', (Split-Path $target -Leaf), '-Path', $Cfg.MacroRoot, '-Yes')
   if ($code -ne 0 -or -not (Test-Path $target)) { throw "Macro creation failed (code $code)." }
 
@@ -400,6 +480,7 @@ function New-MacroFolder {
   }
   Set-NatroIniValue $target 'GitBranch' $Cfg.DefaultBranch
   Set-NatroIniValue $target 'GitRepoUrl' $Cfg.DefaultRepoUrl
+  Set-MacroFolderAcl $Cfg $target
   [void](Update-Macro $Cfg $target)
   Add-MacroFirewallRules $target
   Write-Log "$(Split-Path $target -Leaf) created." OK

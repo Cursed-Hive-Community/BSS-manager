@@ -263,6 +263,7 @@ function Add-RobloxAccount {
     Write-Log "$($other.Name) excluded: its macro $(Split-Path $account.MacroPath -Leaf) now belongs to $WindowsUser." WARN
   }
   Save-BssConfig $Cfg
+  Set-MacroFolderAcl $Cfg $account.MacroPath
 
   # Before the first sign-in, or Windows asks its privacy questions.
   Disable-PrivacyPrompt
@@ -345,9 +346,11 @@ function Set-AccountMacroPath {
   param($Cfg, [string] $Name, [string] $Path)
   $a = Get-AccountByName $Cfg $Name
   if ($Path -and -not (Test-NatroFolder $Path)) { throw "Not a Natro macro: $Path" }
+  $previous = $a.MacroPath
   $a.MacroPath = $Path
   Save-BssConfig $Cfg
   Sync-NatroTask $Cfg $a
+  foreach ($p in @($previous, $Path) | Where-Object { $_ } | Sort-Object -Unique) { Set-MacroFolderAcl $Cfg $p }
   Write-Log "$Name : macro = $(if ($Path) { $Path } else { '(none)' })." OK
 }
 
@@ -369,7 +372,11 @@ function Set-AccountFlag {
   $a = Get-AccountByName $Cfg $Name
   $a.$Flag = $Value
   Save-BssConfig $Cfg
-  if ($Flag -eq 'Enabled') { Sync-NatroTask $Cfg $a }
+  if ($Flag -eq 'Enabled') {
+    Sync-NatroTask $Cfg $a
+    # Only an active account may write in its macro folder.
+    if ($a.MacroPath) { Set-MacroFolderAcl $Cfg $a.MacroPath }
+  }
   $text = switch ($Flag) {
     'Paused' { if ($Value) { 'paused: the supervisor restarts nothing (the session stays open)' } else { 'no longer paused' } }
     'Enabled' { if ($Value) { 'active: started by Start and supervised' } else { 'inactive: neither started by Start nor supervised' } }
@@ -418,6 +425,9 @@ function Set-LocalAccount {
   # The previous local account's Natro and Roblox stop; the session stays.
   if ($r.Previous) { [void](Close-AccountSession $r.Previous) }
   Save-BssConfig $Cfg
+  # The excluded account must lose its write right on the macro now run in
+  # the owner's session.
+  foreach ($p in @($r.Previous.MacroPath, $r.Local.MacroPath) | Where-Object { $_ } | Sort-Object -Unique) { Set-MacroFolderAcl $Cfg $p }
   if ($r.Close) {
     [void](Close-AccountSession $r.Close)
     Sync-NatroTask $Cfg $r.Close
@@ -440,6 +450,7 @@ function Remove-ManagedAccount {
   if (-not $a.Local) { [BssNative]::DeleteCred((Get-CredTarget $a)) }
   $Cfg.Accounts = @($Cfg.Accounts | Where-Object { $_.Name -ne $Name })
   Save-BssConfig $Cfg
+  if ($a.MacroPath) { Set-MacroFolderAcl $Cfg $a.MacroPath }
   Write-Log "$Name removed from BSS Manager." OK
   # The owner's own Windows account is never deleted, whatever is asked.
   if ($DeleteWindowsAccount -and ($Name -eq $env:USERNAME -or $a.Local)) {
@@ -539,6 +550,7 @@ function Install-Manager {
   $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
   Set-ManagerAcl $root
+  Set-MacroRootAcl $Cfg
   Disable-PrivacyPrompt
   if ($Cfg.InboxEnabled) {
     if (-not (Test-Path $Script:Bss.InboxDir)) { New-Item -ItemType Directory -Path $Script:Bss.InboxDir | Out-Null }
