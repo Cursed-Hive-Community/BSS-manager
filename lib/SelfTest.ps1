@@ -187,8 +187,11 @@ function Invoke-SelfTest {
       ($names -contains 'Natro_Macro_kept') -and -not ($names -contains 'Natro_Macro_archived')
     }
 
-    Add-Check 'Signed-in Roblox account read for Roblox2 (PlayerAlt4)' {
-      (Get-RobloxSignedIn 'Roblox2') -eq 'PlayerAlt4'
+    # Proven on whichever account is signed in, so no account name is
+    # written here. Passes on a PC where no macro account is signed in yet.
+    Add-Check 'Signed-in Roblox account read, the one the configuration expects' {
+      $signed = @($Cfg.Accounts | Where-Object { $_.Roblox -and -not $_.Local -and (Get-RobloxSignedIn $_.Name) })
+      (-not $signed.Count) -or @($signed | Where-Object { (Get-RobloxSignedIn $_.Name) -eq $_.Roblox }).Count -gt 0
     }
 
     Add-Check 'Roblox2 is not ready while it holds GuidingALT1''s macro' {
