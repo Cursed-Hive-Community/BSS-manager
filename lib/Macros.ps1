@@ -200,6 +200,8 @@ function Start-Natro {
   # Natro is not running here, so a Roblox left open may be closed to put
   # the settings Natro needs in place; Natro opens it again itself.
   try { [void](Set-AccountRobloxSettings $Account -CloseRoblox) } catch { Write-Log "$($Account.Name) : réglages Roblox non appliqués, $($_.Exception.Message)" WARN }
+  # Natro joins through roblox:// links: make sure Windows can open them.
+  try { [void](Register-RobloxProtocols $Account) } catch { Write-Log "$($Account.Name) : liens roblox:// non vérifiés, $($_.Exception.Message)" WARN }
   Start-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name
   return $true
 }

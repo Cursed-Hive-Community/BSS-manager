@@ -165,26 +165,25 @@ function Install-RobloxInSession {
 
 # Opens the Roblox app in the account's session the way its Start menu
 # shortcut does (RobloxPlayerBeta.exe, no argument), so the owner can sign
-# in. A Roblox already running there while nobody is signed in is a hidden
-# leftover that would swallow the new start, so it is stopped first.
+# in. A Roblox left running for minutes while nobody is signed in is a
+# hidden leftover that would swallow the new start, so it is stopped; a
+# fresh one is not, since right after an install it may still be finishing
+# (stopping it a second after the installer was the likely cause of
+# PlayerAlt3's missing roblox:// links, 2026-11-16).
 function Open-RobloxForSignIn {
   param($Cfg, $Account)
-  $profilePath = Get-UserProfilePath $Account.Name
-  $exe = $null
-  if ($profilePath) {
-    $exe = Get-ChildItem (Join-Path $profilePath 'AppData\Local\Roblox\Versions') -Filter 'RobloxPlayerBeta.exe' -Recurse -ErrorAction SilentlyContinue |
-      Sort-Object LastWriteTime -Descending | Select-Object -First 1
-  }
+  $exe = Get-RobloxPlayerExe $Account.Name
   if (-not $exe) { throw "$($Account.Name) : Roblox n'est pas installé dans sa session." }
   if (-not (Test-SessionConnected (Get-AccountSession $Account))) {
     [void](Open-AccountSession $Cfg $Account)
     if (-not (Wait-Until { Test-SessionConnected (Get-AccountSession $Account) } 120 5)) { throw "$($Account.Name) : la session ne s'ouvre pas." }
   }
-  $session = Get-AccountSession $Account
+  [void](Register-RobloxProtocols $Account)
   # Signed in already: the app is left alone, since starting it again could
   # disturb a running macro; only the web sign-in page is opened.
   if (-not (Get-RobloxSignedIn $Account.Name)) {
-    Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
+    $staleBefore = (Get-Date).AddMinutes(-3)
+    Get-RobloxProcessesInSession $Account | Where-Object { $_.StartTime -lt $staleBefore } | Stop-Process -Force -ErrorAction SilentlyContinue
     [void](Start-InAccountSession $Account 'RobloxOpen' $exe.FullName '')
   }
   # Natro's browser fallback needs the roblox.com sign-in too, which is
@@ -260,6 +259,9 @@ function Add-RobloxAccount {
   Set-AccountEdgeQuiet $account
   Add-MacroFirewallRules $account.MacroPath
   if (-not (Install-RobloxInSession $account)) { throw "Roblox ne s'est pas installé dans la session de $WindowsUser." }
+  # Give the installer's own registration a moment, then fill any gap.
+  [void](Wait-Until { Get-RegisteredProtocolExe "Registry::HKEY_USERS\$((Get-LocalUser -Name $WindowsUser).SID.Value)\Software\Classes" 'roblox' } 60 5)
+  [void](Register-RobloxProtocols $account)
   if (-not (Get-RobloxSignedIn $WindowsUser)) { Open-RobloxForSignIn $Cfg $account }
 
   [void](Update-LearnedRobloxNames $Cfg)

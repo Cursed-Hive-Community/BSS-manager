@@ -241,6 +241,20 @@ function Invoke-SelfTest {
         $wanted.OnScreenProfilerEnabled -eq 'false' -and $wanted.Fullscreen -eq 'true' -and $wanted.HapticStrength -eq '0'
     }
 
+    Add-Check 'roblox:// keys built exactly like the Roblox installer wrote them for the owner' {
+      $classes = 'HKCU:\Software\Classes'
+      $exe = Get-RegisteredProtocolExe $classes 'roblox-player'
+      if (-not $exe) { return $true }
+      $same = $true
+      foreach ($protocol in 'roblox', 'roblox-player') {
+        foreach ($v in Get-RobloxProtocolValues $protocol $exe) {
+          $actual = (Get-ItemProperty (Join-Path $classes $v[0]) -ErrorAction SilentlyContinue).($v[1])
+          if ([string]$actual -ne [string]$v[2]) { $same = $false }
+        }
+      }
+      $same
+    }
+
     Add-Check 'git is installed' { [bool](Get-Command git -ErrorAction SilentlyContinue) }
   } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

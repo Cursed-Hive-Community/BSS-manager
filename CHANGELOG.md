@@ -59,6 +59,10 @@ Versioning[^semver].
 
 ## Fixed
 
+- `roblox://` links are registered for a macro account when missing or
+  stale (Windows answered "get an app to open this 'roblox' link" for
+  PlayerAlt3 after a reinstall), with the installer's own keys, and a Roblox
+  started less than 3 minutes ago is no longer stopped by *Ouvrir Roblox*.
 - The Roblox installer is waited for until it ends; stopping when its first
   file appeared could leave an invisible Roblox behind.
 - `rdpwrap.ini` is always installed with CRLF line endings, and an installed

@@ -472,6 +472,73 @@ function Set-AccountRobloxSettings {
   return $true
 }
 
+# ---------------------------------------------------------------------------
+# roblox:// links
+# ---------------------------------------------------------------------------
+# Natro joins its server through roblox:// links. Without the per-user
+# protocol keys Windows answers "get an app to open this 'roblox' link",
+# which happened to PlayerAlt3 after a reinstall (2026-11-16) although the app
+# was signed in. The keys are the ones the Roblox installer writes in the
+# owner's account, value for value.
+
+function Get-RobloxPlayerExe {
+  param([string] $WindowsUser)
+  $profilePath = Get-UserProfilePath $WindowsUser
+  if (-not $profilePath) { return $null }
+  try {
+    return (Get-ChildItem (Join-Path $profilePath 'AppData\Local\Roblox\Versions') -Filter 'RobloxPlayerBeta.exe' -Recurse -ErrorAction Stop |
+      Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+  } catch { return $null }
+}
+
+# Registry values for one protocol, relative to Software\Classes\<protocol>.
+function Get-RobloxProtocolValues {
+  param([string] $Protocol, [string] $Exe)
+  $version = Split-Path (Split-Path $Exe -Parent) -Leaf
+  return @(
+    @($Protocol, '(default)', 'URL: Roblox Protocol'),
+    @($Protocol, 'URL Protocol', ''),
+    @("$Protocol\DefaultIcon", '(default)', $Exe),
+    @("$Protocol\shell\open\command", '(default)', ('"{0}" %1' -f $Exe)),
+    @("$Protocol\shell\open\command", 'version', $version)
+  )
+}
+
+# The exe a registered protocol opens, or $null.
+function Get-RegisteredProtocolExe {
+  param([string] $ClassesRoot, [string] $Protocol)
+  $command = (Get-ItemProperty (Join-Path $ClassesRoot "$Protocol\shell\open\command") -ErrorAction SilentlyContinue).'(default)'
+  if ($command -match '^"([^"]+)"') { return $Matches[1] }
+  return $null
+}
+
+# Writes the keys only when missing or pointing at a Roblox that no longer
+# exists; a working registration made by Roblox itself is left alone. Needs
+# the account's session open (its hive loaded). Returns $true when both
+# protocols point at an existing Roblox.
+function Register-RobloxProtocols {
+  param($Account)
+  $exe = Get-RobloxPlayerExe $Account.Name
+  if (-not $exe) { return $false }
+  $sid = (Get-LocalUser -Name $Account.Name).SID.Value
+  $classes = "Registry::HKEY_USERS\$sid\Software\Classes"
+  if (-not (Test-Path "Registry::HKEY_USERS\$sid")) { return $false }
+  $written = @()
+  foreach ($protocol in 'roblox', 'roblox-player') {
+    $current = Get-RegisteredProtocolExe $classes $protocol
+    if ($current -and (Test-Path $current)) { continue }
+    foreach ($v in Get-RobloxProtocolValues $protocol $exe.FullName) {
+      $key = Join-Path $classes $v[0]
+      if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+      if ($v[1] -eq '(default)') { Set-Item -Path $key -Value $v[2] }
+      else { New-ItemProperty -Path $key -Name $v[1] -Value $v[2] -PropertyType String -Force | Out-Null }
+    }
+    $written += $protocol
+  }
+  if ($written.Count) { Write-Log "$($Account.Name) : liens $($written -join ' et ') enregistrés pour Roblox (ils manquaient)." WARN }
+  return $true
+}
+
 function Test-ValidAccountName {
   param([string] $Name)
   # Roblox names are 3-20 letters, digits or underscores, which Windows
