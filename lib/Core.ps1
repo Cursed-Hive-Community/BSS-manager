@@ -14,7 +14,6 @@ function Initialize-Bss {
     LogDir     = Join-Path $Root 'logs'
     LogFile    = Join-Path $Root 'logs\bss-manager.log'
     StateDir   = Join-Path $Root 'state'
-    RdpDir     = Join-Path $Root 'state\sessions'
     StatusFile = Join-Path $Root 'state\supervisor.json'
     InboxDir   = Join-Path $Root 'inbox'
     TaskPath   = '\BSS-Manager\'

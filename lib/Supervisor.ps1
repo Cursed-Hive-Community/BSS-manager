@@ -74,7 +74,7 @@ function Invoke-SupervisorPass {
   if (-not $wrapper.Healthy -and (Get-SecondsSince $Memory.LastWrapperAttempt) -ge $Script:WrapperRetryMinutes * 60) {
     $Memory.LastWrapperAttempt = Get-Date
     Write-Log "Superviseur : RDP Wrapper n'est pas utilisable (termsrv $($wrapper.TermsrvVersion)), réparation..." WARN
-    if ($wrapper.IniSupports -and $wrapper.ServiceDllOk) { Restart-RdpService } else { [void](Update-RdpWrapper $Cfg) }
+    if ($wrapper.IniSupports -and $wrapper.IniCrlf -and $wrapper.ServiceDllOk) { Restart-RdpService } else { [void](Update-RdpWrapper $Cfg) }
   }
 
   $restartRequests = @()
@@ -82,9 +82,7 @@ function Invoke-SupervisorPass {
 
   $sessions = Get-BssSessions
   $openedThisPass = $false
-  $index = 0
   foreach ($account in @($Cfg.Accounts)) {
-    $index++
     if (-not $account.Enabled) { continue }
     if (-not $Memory.Accounts.ContainsKey($account.Name)) {
       $Memory.Accounts[$account.Name] = @{ LastSessionLaunch = $null; NatroMissingSince = $null; LastNatroStart = $null; LastAction = ''; LastActionAt = $null }
@@ -95,23 +93,28 @@ function Invoke-SupervisorPass {
     $status.Accounts[$account.Name] = $entry
 
     if ($account.Paused) { $entry.State = 'en pause'; continue }
-    if ($account.MacroPath -and (Test-MacroUpdating $account.MacroPath)) { $entry.State = 'mise à jour en cours'; continue }
+    # Unattended work needs a saved password and a macro; anything less would
+    # only leave a password prompt or an idle session on screen.
+    $missing = Get-AccountReadiness $account
+    if ($missing) { $entry.State = "pas prêt : $missing"; continue }
+    if (Test-MacroUpdating $account.MacroPath) { $entry.State = 'mise à jour en cours'; continue }
 
     if (-not (Test-SessionConnected $session)) {
       $entry.State = 'session à rouvrir'
+      if (Get-AccountClient $account) { $entry.State = 'connexion en cours'; continue }
       # One session per pass: a Roblox start is heavy, and staggering them is
       # what DelayBetweenSessionsSec does for the manual launch.
       if (-not $openedThisPass -and (Get-SecondsSince $m.LastSessionLaunch) -ge $grace) {
         Write-Log "Superviseur : $($account.Name) - session $(Format-SessionState $session), ouverture." WARN
-        Open-AccountSession $Cfg $account ($index - 1)
-        $m.LastSessionLaunch = Get-Date
-        $m.NatroMissingSince = $null
-        $m.LastAction = 'session rouverte'; $m.LastActionAt = Get-Date
-        $openedThisPass = $true
+        if (Open-AccountSession $Cfg $account) {
+          $m.LastSessionLaunch = Get-Date
+          $m.NatroMissingSince = $null
+          $m.LastAction = 'session rouverte'; $m.LastActionAt = Get-Date
+          $openedThisPass = $true
+        }
       }
       continue
     }
-    if (-not $account.MacroPath) { $entry.State = 'aucune macro associée'; continue }
 
     $running = Test-NatroRunning $account $session.Id
     $entry.Natro = $(if ($running) { 'tourne' } else { 'arrêté' })

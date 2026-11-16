@@ -56,14 +56,24 @@ function Invoke-SelfTest {
       $w.TermsrvVersion -match '^\d+\.\d+\.\d+\.\d+$' -and $w.IniSupports
     }
 
-    Add-Check '.rdp file names the account and its address' {
-      $saved = $Script:Bss.RdpDir
-      $Script:Bss.RdpDir = $tmp
-      try {
-        $file = Write-RdpFile $Cfg ([pscustomobject]@{ Name = 'SelfTest'; Ip = '127.0.0.9' }) 0
-        $text = [IO.File]::ReadAllText($file)
-        $text.Contains('full address:s:127.0.0.9') -and $text.Contains("username:s:$env:COMPUTERNAME\SelfTest")
-      } finally { $Script:Bss.RdpDir = $saved }
+    Add-Check 'mstsc gets the account address and size, no .rdp file' {
+      $arguments = Get-MstscArguments $Cfg ([pscustomobject]@{ Name = 'SelfTest'; Ip = '127.0.0.9' })
+      ($arguments[0] -match '^/v:127\.0\.0\.9(:\d+)?$') -and ($arguments -contains "/w:$($Cfg.SessionWidth)") -and
+        -not ($arguments -match '\.rdp')
+    }
+
+    Add-Check 'ini line endings: LF detected, converted to CRLF' {
+      $lf = Join-Path $tmp 'lf.ini'
+      $crlf = Join-Path $tmp 'crlf.ini'
+      [IO.File]::WriteAllText($lf, "[Main]`nUpdated=x`n[10.0.1.2]`nA=1`r`nB=2`n")
+      $before = Test-IniCrlf $lf
+      Copy-IniAsCrlf $lf $crlf
+      $text = [IO.File]::ReadAllText($crlf)
+      (-not $before) -and (Test-IniCrlf $crlf) -and ($text -eq "[Main]`r`nUpdated=x`r`n[10.0.1.2]`r`nA=1`r`nB=2`r`n")
+    }
+
+    Add-Check 'installed rdpwrap.ini uses CRLF line endings' {
+      Test-IniCrlf (Join-Path $Cfg.RdpWrapperDir 'rdpwrap.ini')
     }
 
     Add-Check 'nm_config.ini: add, replace, keep other sections' {

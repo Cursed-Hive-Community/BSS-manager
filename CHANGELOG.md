@@ -6,6 +6,19 @@ Versioning[^semver].
 
 # [Unreleased]
 
+## Fixed
+
+- `rdpwrap.ini` is always installed with CRLF line endings, and an installed
+  LF file is converted. rdpwrap.dll reads no section from an LF file, which
+  left Windows at one session ("all connections are in use").
+- Sessions open with `mstsc /v:` instead of an `.rdp` file, which Windows now
+  holds behind an "unknown publisher" warning every time.
+- At most one connection window per account; the supervisor no longer adds
+  one every minute.
+- The supervisor only runs accounts with a saved password and a macro.
+- Installation replaces the whole folder access list, so a write right
+  granted by hand is removed.
+
 # [0.1.0] - 2026-11-16
 
 ## Added

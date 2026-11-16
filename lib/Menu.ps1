@@ -169,7 +169,6 @@ function Remove-MacroAccount {
   [void](Close-AccountSession $a)
   Unregister-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-NatroTaskName $a) -Confirm:$false -ErrorAction SilentlyContinue
   [BssNative]::DeleteCred((Get-CredTarget $a))
-  Remove-Item (Join-Path $Script:Bss.RdpDir "$($a.Name).rdp") -ErrorAction SilentlyContinue
   $Cfg.Accounts = @($Cfg.Accounts | Where-Object { $_.Name -ne $a.Name })
   Save-BssConfig $Cfg
   Write-Log "$($a.Name) retiré de BSS Manager." OK

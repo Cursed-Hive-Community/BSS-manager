@@ -11,7 +11,7 @@ function Start-All {
   if (-not $accounts.Count) { Write-Log 'Aucun compte à lancer : ajoute ou inclus un compte dans « Comptes et macros ».' WARN; return }
 
   $wrapper = Get-WrapperState $Cfg
-  if (-not ($wrapper.IniSupports -and $wrapper.ServiceDllOk)) {
+  if (-not ($wrapper.IniSupports -and $wrapper.IniCrlf -and $wrapper.ServiceDllOk)) {
     if (-not (Update-RdpWrapper $Cfg)) { Write-Log 'Lancement annulé : sans RDP Wrapper à jour, une seule session peut s''ouvrir.' ERROR; return }
   }
 
@@ -46,8 +46,7 @@ function Start-All {
     if ($opened -gt 0) { Start-Sleep -Seconds ([int]$Cfg.DelayBetweenSessionsSec) }
     $what = $(if ($session) { 'reconnexion' } elseif ($a.MacroPath) { "ouverture, Natro démarre ~$($Cfg.NatroStartDelaySec) s après" } else { 'ouverture, aucune macro associée' })
     Write-Log "$($a.Name) : $what ($($a.Ip))."
-    Open-AccountSession $Cfg $a $i
-    $opened++
+    if (Open-AccountSession $Cfg $a) { $opened++ }
   }
   Write-Log "$opened session(s) ouverte(s)." OK
   Start-SupervisorTask
@@ -78,8 +77,7 @@ function Restart-AccountMacro {
       Start-Natro $a
       Write-Log "$($a.Name) : macro redémarrée." OK
     } else {
-      Open-AccountSession $Cfg $a 0
-      Write-Log "$($a.Name) : session rouverte, la macro démarre avec elle." OK
+      if (Open-AccountSession $Cfg $a) { Write-Log "$($a.Name) : session rouverte, la macro démarre avec elle." OK }
     }
   }
 }
@@ -140,16 +138,36 @@ function New-Shortcut {
   $link.Save()
 }
 
+# Scheduled tasks run these scripts with administrator rights, so only
+# administrators may change them. The whole list is replaced, so a write
+# right granted by hand (for development) does not survive an installation;
+# icacls /grant:r would only have replaced the rights of the SIDs it names.
+# https://learn.microsoft.com/dotnet/api/system.security.accesscontrol.directorysecurity
+function Set-ManagerAcl {
+  param([string] $Root)
+  $inherit = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+  $none = [Security.AccessControl.PropagationFlags]::None
+  $acl = New-Object Security.AccessControl.DirectorySecurity
+  $acl.SetAccessRuleProtection($true, $false)
+  foreach ($rule in @(
+      @('S-1-5-32-544', 'FullControl'),
+      @('S-1-5-18', 'FullControl'),
+      @('S-1-5-32-545', 'ReadAndExecute'))) {
+    $sid = New-Object Security.Principal.SecurityIdentifier $rule[0]
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, $rule[1], $inherit, $none, 'Allow')))
+  }
+  Set-Acl -Path $Root -AclObject $acl
+  # Children drop their own entries and inherit the list above.
+  & icacls.exe (Join-Path $Root '*') /reset /T /C /Q | Out-Null
+  Write-Log 'Droits du dossier : modification réservée aux administrateurs.' OK
+}
+
 function Install-Manager {
   param($Cfg)
   $root = $Script:Bss.Root
   $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
-  # Scheduled tasks run these scripts with administrator rights, so only
-  # administrators may change them. SIDs keep it working on any language.
-  # https://learn.microsoft.com/windows-server/administration/windows-commands/icacls
-  & icacls.exe $root /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
-  Write-Log "Droits du dossier : modification réservée aux administrateurs." OK
+  Set-ManagerAcl $root
   if ($Cfg.InboxEnabled) {
     if (-not (Test-Path $Script:Bss.InboxDir)) { New-Item -ItemType Directory -Path $Script:Bss.InboxDir | Out-Null }
     & icacls.exe $Script:Bss.InboxDir /grant '*S-1-5-32-555:(OI)(CI)M' | Out-Null
@@ -201,6 +219,7 @@ function Show-Status {
   Write-Host ('termsrv.dll   : {0}' -f $w.TermsrvVersion)
   Write-Host ('rdpwrap.ini   : Updated={0}' -f $w.IniUpdated)
   Write-Host ('Compatible    : {0}' -f $(if ($w.IniSupports) { 'oui' } else { 'NON' })) -ForegroundColor $(if ($w.IniSupports) { 'Green' } else { 'Red' })
+  if (-not $w.IniCrlf) { Write-Host 'Fins de ligne : LF, illisible par RDP Wrapper -> « Mettre à jour RDP Wrapper »' -ForegroundColor Red }
   if (-not $w.ServiceDllOk) { Write-Host 'Service       : ne charge pas rdpwrap.dll' -ForegroundColor Red }
   Write-Host ('Service       : {0}, port {1} {2}' -f $w.Service, $w.Port, $(if ($w.Listening) { 'en écoute' } else { 'PAS en écoute' }))
 

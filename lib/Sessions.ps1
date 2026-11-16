@@ -92,65 +92,53 @@ function Set-AccountCredential {
   [BssNative]::WriteCred((Get-CredTarget $Account), (Get-QualifiedUser $Account.Name), $Password)
 }
 
-function Write-RdpFile {
-  param($Cfg, $Account, [int] $Index)
-  if (-not (Test-Path $Script:Bss.RdpDir)) { New-Item -ItemType Directory -Path $Script:Bss.RdpDir | Out-Null }
-  $w = [int]$Cfg.SessionWidth
-  $h = [int]$Cfg.SessionHeight
-  $x = 20 + 40 * $Index
-  $y = 20 + 40 * $Index
+# mstsc is started with /v: rather than with an .rdp file. Since 2026 Windows
+# shows a blocking "unknown publisher" warning every time an unsigned .rdp
+# file is opened; /v: has no file, so no warning (checked on this machine on
+# 2026-11-16). The account name comes from the saved TERMSRV/<address>
+# credential, which is what mstsc looks up for /v:.
+# https://learn.microsoft.com/windows-server/administration/windows-commands/mstsc
+function Get-MstscArguments {
+  param($Cfg, $Account)
   $port = Get-RdpPort
   $address = $Account.Ip
   if ($port -ne 3389) { $address = "$($Account.Ip):$port" }
-  $lines = @(
-    "full address:s:$address",
-    "username:s:$(Get-QualifiedUser $Account.Name)",
-    'prompt for credentials:i:0',
-    'promptcredentialonce:i:0',
-    # The loopback certificate is self-signed; checking it would prompt.
-    'authentication level:i:0',
-    'enablecredsspsupport:i:1',
-    'negotiate security layer:i:1',
-    'screen mode id:i:1',
-    "desktopwidth:i:$w",
-    "desktopheight:i:$h",
-    'session bpp:i:32',
-    'smart sizing:i:1',
-    'dynamic resolution:i:0',
-    "winposstr:s:0,1,$x,$y,$($x + $w + 16),$($y + $h + 39)",
-    'audiomode:i:2',
-    'audiocapturemode:i:0',
-    'redirectclipboard:i:1',
-    'redirectprinters:i:0',
-    'redirectsmartcards:i:0',
-    'redirectcomports:i:0',
-    'drivestoredirect:s:',
-    'keyboardhook:i:0',
-    'autoreconnection enabled:i:1',
-    'autoreconnect max retries:i:100',
-    'connection type:i:7',
-    'networkautodetect:i:1',
-    'bandwidthautodetect:i:1',
-    'displayconnectionbar:i:1',
-    'disable wallpaper:i:1',
-    'allow font smoothing:i:0',
-    'disable full window drag:i:1',
-    'disable menu anims:i:1',
-    'bitmapcachepersistenable:i:1'
-  )
-  $file = Join-Path $Script:Bss.RdpDir "$($Account.Name).rdp"
-  Set-Content -Path $file -Value $lines -Encoding Unicode
-  return $file
+  return @("/v:$address", "/w:$([int]$Cfg.SessionWidth)", "/h:$([int]$Cfg.SessionHeight)")
+}
+
+# The mstsc client of an account, found by its /v: argument. Reading another
+# elevated process's command line needs administrator rights, which every
+# caller of this has.
+function Get-AccountClient {
+  param($Account)
+  $pattern = "/v:$([regex]::Escape($Account.Ip))(\s|:|$)"
+  return @(Get-CimInstance Win32_Process -Filter "Name='mstsc.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match $pattern })
 }
 
 # Opens a new session, or reattaches a disconnected one: mstsc does either.
+# Never a second client for the same account: one waiting on a password or
+# still connecting is left alone, so windows cannot pile up.
 function Open-AccountSession {
-  param($Cfg, $Account, [int] $Index)
+  param($Cfg, $Account)
+  if (Get-AccountClient $Account) {
+    Write-Log "$($Account.Name) : une fenêtre de connexion est déjà ouverte, pas de deuxième." WARN
+    return $false
+  }
   if (-not [BssNative]::CredExists((Get-CredTarget $Account))) {
     Write-Log "$($Account.Name) : aucun mot de passe enregistré, Windows va le demander (coche « Mémoriser »)." WARN
   }
-  $rdp = Write-RdpFile $Cfg $Account $Index
-  Start-Process -FilePath "$env:SystemRoot\System32\mstsc.exe" -ArgumentList ('"{0}"' -f $rdp)
+  Start-Process -FilePath "$env:SystemRoot\System32\mstsc.exe" -ArgumentList (Get-MstscArguments $Cfg $Account)
+  return $true
+}
+
+# What the supervisor needs to run an account without anybody at the screen.
+function Get-AccountReadiness {
+  param($Account)
+  if (-not (Get-LocalUser -Name $Account.Name -ErrorAction SilentlyContinue)) { return 'compte Windows introuvable' }
+  if (-not [BssNative]::CredExists((Get-CredTarget $Account))) { return 'mot de passe non enregistré' }
+  if (-not $Account.MacroPath) { return 'aucune macro associée' }
+  return ''
 }
 
 function Close-AccountSession {

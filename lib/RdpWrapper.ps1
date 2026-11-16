@@ -27,6 +27,22 @@ function Test-IniSupports {
   return [IO.File]::ReadAllText($Path).Contains("[$Version]")
 }
 
+# rdpwrap.dll splits its ini on CRLF only. An ini with bare LF line endings
+# (the upstream file switched to LF on 2026-10-30) loads without any error
+# but yields no section, so nothing is patched and Windows keeps its single
+# session limit ("all connections are in use").
+function Test-IniCrlf {
+  param([string] $Path)
+  if (-not (Test-Path $Path)) { return $false }
+  return -not ([IO.File]::ReadAllText($Path) -match "(?<!`r)`n")
+}
+
+function Copy-IniAsCrlf {
+  param([string] $Source, [string] $Destination)
+  $text = [IO.File]::ReadAllText($Source) -replace "`r`n", "`n" -replace "`n", "`r`n"
+  [IO.File]::WriteAllText($Destination, $text, (New-Object Text.UTF8Encoding $false))
+}
+
 function Get-RdpPort {
   $key = "$Script:TerminalServerKey\WinStations\RDP-Tcp"
   $port = (Get-ItemProperty $key -ErrorAction SilentlyContinue).PortNumber
@@ -45,6 +61,7 @@ function Get-WrapperState {
     TermsrvVersion = $version
     IniUpdated     = (Get-IniUpdated $ini)
     IniSupports    = (Test-IniSupports $ini $version)
+    IniCrlf        = (Test-IniCrlf $ini)
     DllExists      = (Test-Path $dll)
     ServiceDllOk   = ([Environment]::ExpandEnvironmentVariables($serviceDll) -eq $dll)
     Service        = (Get-Service TermService).Status.ToString()
@@ -52,7 +69,7 @@ function Get-WrapperState {
     Listening      = [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
     Healthy        = $false
   }
-  $state.Healthy = $state.IniSupports -and $state.DllExists -and $state.ServiceDllOk -and $state.Listening
+  $state.Healthy = $state.IniSupports -and $state.IniCrlf -and $state.DllExists -and $state.ServiceDllOk -and $state.Listening
   return $state
 }
 
@@ -113,13 +130,17 @@ function Update-RdpWrapper {
   $changed = $false
 
   if ($Script:Bss.Force -or -not (Test-IniSupports $ini $version)) {
+    # Only a missing section justifies a download; a wrong line ending is
+    # repaired below without touching the network.
     Write-Log 'Téléchargement du dernier rdpwrap.ini...'
     $tmp = Get-RemoteIni $Cfg
     if (-not (Test-IniSupports $tmp $version)) {
       Write-Log "Le rdpwrap.ini en ligne (Updated=$(Get-IniUpdated $tmp)) ne gère pas encore termsrv.dll $version. Réessaie dans quelques jours." ERROR
       return $false
     }
-    if ((Test-Path $ini) -and ((Get-FileHash $ini).Hash -eq (Get-FileHash $tmp).Hash)) {
+    $crlf = "$tmp.crlf"
+    Copy-IniAsCrlf $tmp $crlf
+    if ((Test-Path $ini) -and ((Get-FileHash $ini).Hash -eq (Get-FileHash $crlf).Hash)) {
       Write-Log 'Le rdpwrap.ini local est déjà la dernière version.'
     } else {
       if (Test-Path $ini) {
@@ -127,7 +148,7 @@ function Update-RdpWrapper {
         Copy-Item $ini $backup -Force
         Write-Log "Ancien fichier sauvegardé : $backup"
       }
-      Copy-Item $tmp $ini -Force
+      Copy-Item $crlf $ini -Force
       Write-Log "Nouveau rdpwrap.ini installé (Updated=$(Get-IniUpdated $ini))." OK
       $changed = $true
       # Five backups are plenty to roll back, and keep the folder bounded.
@@ -136,6 +157,14 @@ function Update-RdpWrapper {
     }
   } else {
     Write-Log "rdpwrap.ini gère déjà termsrv.dll $version." OK
+  }
+
+  if (-not (Test-IniCrlf $ini)) {
+    $backup = "$ini.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    Copy-Item $ini $backup -Force
+    Copy-IniAsCrlf $backup $ini
+    Write-Log 'rdpwrap.ini avait des fins de ligne Unix (LF) que RDP Wrapper ne lit pas : converti en CRLF.' WARN
+    $changed = $true
   }
 
   $current = [Environment]::ExpandEnvironmentVariables([string](Get-ItemProperty $Script:TermServiceKey).ServiceDll)
