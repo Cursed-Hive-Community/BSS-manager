@@ -119,6 +119,56 @@ function Invoke-SelfTest {
       ($names -join ',') -eq 'Roblox1,Roblox2' -and @(Get-ChildItem $inbox).Count -eq 0
     }
 
+    Add-Check 'Roblox names guessed from the owner''s folder names' {
+      $cases = [ordered]@{
+        'Natro_Macro_PlayerAlt4'             = 'PlayerAlt4'
+        'Natro_Macro_v1.0.1 Player25bee - Red' = 'Player25bee'
+        'Natro Macro v1.0.0.3 Player - Blue'   = 'Player'
+        'Natro_Macro_v1.0.1 BlueBeePlayer'     = 'BlueBeePlayer'
+        'Natro_Macro_v1.0.1 PlayerAlt3'            = 'PlayerAlt3'
+        'Natro Macro v1.0.0.2 - Copie'           = $null
+        'Natro_Macro_v1.0'                       = $null
+        'Natro_Macro_v1.0.0.1a'                  = $null
+      }
+      @($cases.Keys | Where-Object { (Get-RobloxNameGuess $_) -ne $cases[$_] }).Count -eq 0
+    }
+
+    Add-Check 'Generated password: 28 characters, every class' {
+      $p = New-RandomPassword
+      $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($p)
+      try { $t = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }
+      $t.Length -eq 28 -and $t -cmatch '[A-Z]' -and $t -cmatch '[a-z]' -and $t -match '\d' -and $t -match '[!#%+=?@]'
+    }
+
+    Add-Check 'Account names: Roblox names allowed, PC and own name refused' {
+      (Test-ValidAccountName 'PlayerAlt4') -and (Test-ValidAccountName 'Guiding_ALT1') -and
+        -not (Test-ValidAccountName $env:COMPUTERNAME) -and -not (Test-ValidAccountName $env:USERNAME) -and -not (Test-ValidAccountName 'ab')
+    }
+
+    Add-Check 'Macro discovery skips the _Anciennes archive' {
+      $root = Join-Path $tmp 'macros'
+      foreach ($d in 'Natro_Macro_kept', "$($Script:ArchiveFolderName)\Natro_Macro_archived") {
+        New-Item -ItemType Directory -Force -Path (Join-Path $root "$d\submacros") | Out-Null
+        Set-Content (Join-Path $root "$d\submacros\natro_macro.ahk") 'VersionID := "1.0.1"'
+      }
+      $names = @(Find-Macros ([pscustomobject]@{ MacroRoot = $root; DefaultBranch = 'main'; DefaultRepoUrl = '' }) | ForEach-Object { $_.Name })
+      ($names -contains 'Natro_Macro_kept') -and -not ($names -contains 'Natro_Macro_archived')
+    }
+
+    Add-Check 'Signed-in Roblox account read for Roblox2 (PlayerAlt4)' {
+      (Get-RobloxSignedIn 'Roblox2') -eq 'PlayerAlt4'
+    }
+
+    Add-Check 'Roblox2 is not ready while it holds GuidingALT1''s macro' {
+      $fake = [pscustomobject]@{ Name = 'Roblox2'; Ip = '127.0.0.3'; MacroPath = 'G:\Macro bee swarm\Natro_Macro_GuidingALT1'; Roblox = 'PlayerAlt4' }
+      if (-not [BssNative]::CredExists((Get-CredTarget $fake))) { return $true }
+      (Get-AccountReadiness $fake) -eq 'la macro est celle de GuidingALT1, pas de PlayerAlt4'
+    }
+
+    Add-Check 'An unknown Windows account is never ready' {
+      (Get-AccountReadiness ([pscustomobject]@{ Name = 'NoSuchUser' + [Guid]::NewGuid().ToString('N').Substring(0, 6); Ip = '127.0.0.250'; MacroPath = 'x'; Roblox = 'x' })) -eq 'compte Windows introuvable'
+    }
+
     Add-Check 'git is installed' { [bool](Get-Command git -ErrorAction SilentlyContinue) }
   } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

@@ -35,8 +35,11 @@ by itself after a crash.
 1. Put this folder at `C:\BSS-Manager`. Scheduled tasks point at it.
 2. Double-click `BSS-Manager.bat` and accept the administrator prompt: the
    window opens.
-3. Tab *Comptes*: for each account, *Associer une macro...* and
-   *Mot de passe...*. The *État* column says what is still missing.
+3. Tab *Comptes Roblox*, *Ajouter des comptes Roblox...*: tick the Roblox
+   accounts suggested from your folder names, fix their names, pick the base
+   folder of each, and let it prepare them one after the other. Then sign in
+   to Roblox once in each session it opened. The *État* column says what is
+   still missing.
 4. Tab *Réglages*, *Installer / réparer*. It restricts the folder to
    administrators, registers the supervisor and the one-click task, and
    creates two desktop shortcuts.
@@ -47,8 +50,9 @@ by itself after a crash.
 - **BSS - Tout lancer** on the desktop: RDP Wrapper check, macro updates,
   sessions, macros. No administrator prompt.
 - **BSS Manager** on the desktop: the window. Its tabs:
-  - *Comptes*: live state, start, stop, restart, pause, passwords, macros;
-  - *Macros*: every Natro folder found, branch, update, conversion;
+  - *Comptes Roblox*: live state, add accounts, start, stop, restart,
+    open a session, pause, macro, password;
+  - *Macros*: every Natro folder found, branch, update;
   - *Réglages*: RDP Wrapper, supervisor, automatic sign-in, settings,
     installation;
   - *Journal*: the log, live.
@@ -66,11 +70,34 @@ Command line, from an administrator PowerShell:
 .\BSS-Manager.ps1 -Action Restart -Account Roblox1 # restart one macro
 .\BSS-Manager.ps1 -Action UpdateMacros             # update and restart
 .\BSS-Manager.ps1 -Action SetBranch -Path <dir> -Branch main
-.\BSS-Manager.ps1 -Action ConvertMacro -Path <dir> # old release -> fork
+.\BSS-Manager.ps1 -Action AddRoblox -Roblox <name> -Path <base folder>
 .\BSS-Manager.ps1 -Action Update -Force            # re-fetch rdpwrap.ini
 .\BSS-Manager.ps1 -Action Status                   # no admin needed
 .\BSS-Manager.ps1 -Action SelfTest                 # no admin needed
 ```
+
+# Roblox accounts
+
+One Roblox account has its own Windows account (named after it by
+default), its own macro folder `Natro_Macro_<account>` and its own session.
+Adding one runs every step, each skipped when already done, so
+*Reprendre la préparation* resumes an interrupted one:
+
+1. Windows account created, with a random 28-character password kept in
+   Credential Manager; nobody has to type it.
+2. Macro: a Cursed folder is used as is; otherwise a clean one is cloned
+   from a Cursed instance with the fork's `nm-new-instance.ps1`, the base
+   folder's `settings` are copied in, it is updated to `DefaultBranch`, and
+   the base folder is moved to `_Anciennes`.
+3. Session opened once, which builds the Windows profile.
+4. Roblox installed in that session from roblox.com, only if the installer
+   carries a valid Roblox Corporation signature.
+5. You sign in to Roblox in that session, by hand, once.
+
+The Roblox account signed in is read from
+`%LOCALAPPDATA%\Roblox\LocalStorage\appStorage.json` in each profile. An
+account only runs when that name, the account's Roblox name and the name in
+its macro folder all agree; otherwise *État* says which one differs.
 
 # After a crash
 
@@ -100,7 +127,7 @@ Git Sync button uses. Without them it follows `DefaultBranch` from
 | `DefaultBranch` | `feature/rays-extensions` | branch without `GitBranch` |
 | `DefaultRepoUrl` | the Cursed fork | repository without `GitRepoUrl` |
 | `UpdateMacrosOnStart` | `true` | update stopped macros on start |
-| `SessionWidth`, `SessionHeight` | `1280`, `720` | session size |
+| `SessionWidth`, `SessionHeight` | `1920`, `1080` | session size |
 | `DelayBetweenSessionsSec` | `20` | gap between two sessions on start |
 | `NatroStartDelaySec` | `15` | wait in a session before Natro |
 | `SupervisorIntervalSec` | `60` | time between two checks |

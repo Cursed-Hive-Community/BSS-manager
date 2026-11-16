@@ -113,15 +113,16 @@ function Write-FileAtomic {
 # older version gains the missing keys on load.
 function Get-BssDefaults {
   [ordered]@{
-    SchemaVersion           = 1
+    SchemaVersion           = 2
     IniUrl                  = 'https://raw.githubusercontent.com/sebaxakerhtc/rdpwrap.ini/master/rdpwrap.ini'
     RdpWrapperDir           = 'C:\Program Files\RDP Wrapper'
     MacroRoot               = 'G:\Macro bee swarm'
     DefaultRepoUrl          = 'https://github.com/Cursed-Hive-Community/NatroMacroCursed.git'
     DefaultBranch           = 'feature/rays-extensions'
     UpdateMacrosOnStart     = $true
-    SessionWidth            = 1280
-    SessionHeight           = 720
+    # Natro is set up for 1920x1080; every session gets it.
+    SessionWidth            = 1920
+    SessionHeight           = 1080
     DelayBetweenSessionsSec = 20
     NatroStartDelaySec      = 15
     SupervisorIntervalSec   = 60
@@ -141,6 +142,13 @@ function Get-BssConfig {
       }
     }
     $cfg.Accounts = @($cfg.Accounts)
+    # Schema 1 accounts had no Roblox name: fill it from what is signed in.
+    # In memory only, so a reader (the supervisor) never writes the file.
+    foreach ($a in $cfg.Accounts) {
+      if (-not ($a.PSObject.Properties.Name -contains 'Roblox')) {
+        $a | Add-Member -NotePropertyName Roblox -NotePropertyValue ([string](Get-RobloxSignedIn $a.Name))
+      }
+    }
     return $cfg
   }
 
@@ -159,10 +167,13 @@ function Save-BssConfig {
   Write-FileAtomic $Script:Bss.ConfigPath ($Cfg | ConvertTo-Json -Depth 5)
 }
 
+# Name is the Windows account; Roblox the Roblox account it plays.
 function New-AccountEntry {
-  param($Cfg, [string] $Name)
+  param($Cfg, [string] $Name, [string] $Roblox)
+  if (-not $Roblox) { $Roblox = [string](Get-RobloxSignedIn $Name) }
   [pscustomobject]@{
     Name      = $Name
+    Roblox    = $Roblox
     Enabled   = $true
     Paused    = $false
     Ip        = (Get-NextLoopbackIp $Cfg)

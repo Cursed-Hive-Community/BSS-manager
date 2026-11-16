@@ -97,6 +97,11 @@ function Invoke-SupervisorPass {
     # only leave a password prompt or an idle session on screen.
     $missing = Get-AccountReadiness $account
     if ($missing) { $entry.State = "pas prêt : $missing"; continue }
+    # The account just became ready (its owner signed in to Roblox): give
+    # it the task that starts Natro.
+    if (-not (Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName (Get-NatroTaskName $account) -ErrorAction SilentlyContinue)) {
+      Sync-NatroTask $Cfg $account
+    }
     if (Test-MacroUpdating $account.MacroPath) { $entry.State = 'mise à jour en cours'; continue }
 
     if (-not (Test-SessionConnected $session)) {

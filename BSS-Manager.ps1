@@ -18,7 +18,7 @@
   BSS-Manager.ps1 -Action UpdateMacros             # update the accounts' macros
   BSS-Manager.ps1 -Action UpdateMacros -Path <dir> # update one macro folder
   BSS-Manager.ps1 -Action SetBranch -Path <dir> -Branch main
-  BSS-Manager.ps1 -Action ConvertMacro -Path <dir> # old release -> Cursed fork
+  BSS-Manager.ps1 -Action AddRoblox -Roblox PlayerAlt4 [-WindowsUser x] [-Path <base macro>]
   BSS-Manager.ps1 -Action SelfTest                 # checks, no admin needed
 
 .LINK
@@ -26,11 +26,13 @@
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('Gui', 'Menu', 'Status', 'Start', 'Stop', 'Restart', 'Update', 'UpdateMacros', 'SetBranch', 'ConvertMacro', 'Supervise', 'Install', 'Uninstall', 'SelfTest')]
+  [ValidateSet('Gui', 'Menu', 'Status', 'Start', 'Stop', 'Restart', 'Update', 'UpdateMacros', 'SetBranch', 'AddRoblox', 'Supervise', 'Install', 'Uninstall', 'SelfTest')]
   [string] $Action = 'Gui',
   [string[]] $Account,
   [string] $Path,
   [string] $Branch,
+  [string] $Roblox,
+  [string] $WindowsUser,
   [switch] $Unattended,
   [switch] $Force,
   # Test hook: draws every tab of the window into PNG files, then closes it.
@@ -55,6 +57,8 @@ if (-not $readOnly -and -not (Test-Admin)) {
   if ($Account) { $arguments += @('-Account', ($Account -join ',')) }
   if ($Path) { $arguments += @('-Path', ('"{0}"' -f $Path)) }
   if ($Branch) { $arguments += @('-Branch', $Branch) }
+  if ($Roblox) { $arguments += @('-Roblox', $Roblox) }
+  if ($WindowsUser) { $arguments += @('-WindowsUser', $WindowsUser) }
   if ($Unattended) { $arguments += '-Unattended' }
   if ($Force) { $arguments += '-Force' }
   try {
@@ -80,7 +84,7 @@ try {
     'Update'       { if (-not (Update-RdpWrapper $cfg)) { exit 2 } }
     'UpdateMacros' { if ($Path) { Update-Macros $cfg -Paths @($Path) } else { Update-Macros $cfg $Account } }
     'SetBranch'    { if (-not ($Path -and $Branch)) { throw '-Path et -Branch sont obligatoires.' }; Set-MacroBranch $cfg $Path $Branch }
-    'ConvertMacro' { if (-not $Path) { throw '-Path est obligatoire.' }; if (-not (Convert-MacroToGit $cfg $Path)) { exit 1 } }
+    'AddRoblox'    { if (-not $Roblox) { throw '-Roblox est obligatoire.' }; Add-RobloxAccount $cfg $Roblox $WindowsUser $Path }
     'Supervise'    { Invoke-Supervisor }
     'Install'      { Install-Manager $cfg }
     'Uninstall'    { Uninstall-Manager }

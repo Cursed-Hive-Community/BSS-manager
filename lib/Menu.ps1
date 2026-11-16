@@ -24,7 +24,7 @@ function Set-AccountMacro {
   $other = $Cfg.Accounts | Where-Object { $path -and $_.Name -ne $a.Name -and $_.MacroPath -eq $path } | Select-Object -First 1
   if ($other -and -not (Confirm-Action "$($other.Name) utilise déjà cette macro. L'associer quand même ?")) { return }
   Set-AccountMacroPath $Cfg $a.Name $path
-  if ($path -and -not $macros[$i].IsGit) { Write-Host 'Ancienne version : « Convertir une ancienne macro » la passe sur ta version Cursed.' -ForegroundColor Yellow }
+  if ($path -and -not $macros[$i].IsGit) { Write-Host 'Ancienne version : « Ajouter un compte Roblox » crée une macro propre à partir de ce dossier.' -ForegroundColor Yellow }
 }
 
 function Set-MacroBranchMenu {
@@ -49,14 +49,21 @@ function Set-MacroBranchMenu {
   Set-MacroBranch $Cfg $sample.Path $branches[$j]
 }
 
-function Convert-MacroMenu {
+function Add-RobloxAccountMenu {
   param($Cfg)
-  $old = @(Find-Macros $Cfg | Where-Object { -not $_.IsGit })
-  if (-not $old.Count) { Write-Host 'Toutes les macros trouvées sont déjà en version Cursed.' -ForegroundColor Green; return }
-  Write-Host "Les fichiers de la macro sont remplacés par ceux de $($Cfg.DefaultBranch). Le dossier settings (comptes, champs, webhook) est gardé." -ForegroundColor Yellow
-  $i = Select-Index @($old | ForEach-Object { Format-MacroLabel $_ }) 'Macro à convertir'
+  $suggestions = @(Get-RobloxAccountSuggestions $Cfg | Where-Object { -not $_.Configured })
+  $labels = @($suggestions | ForEach-Object { '{0}  ({1} dossier(s))' -f $_.Roblox, $_.Candidates.Count }) + @('Autre nom...')
+  $i = Select-Index $labels 'Compte Roblox'
   if ($i -lt 0) { return }
-  [void](Convert-MacroToGit $Cfg $old[$i].Path)
+  $candidates = @()
+  if ($i -lt $suggestions.Count) { $roblox = $suggestions[$i].Roblox; $candidates = $suggestions[$i].Candidates }
+  else { $roblox = (Read-Host 'Nom exact du compte Roblox').Trim() }
+  $windows = (Read-Host "Compte Windows (Entrée = $roblox)").Trim()
+  if (-not $windows) { $windows = $roblox }
+  $j = Select-Index (@($candidates | ForEach-Object { Format-MacroLabel $_ }) + @('Aucune base : réglages neufs')) 'Macro de base'
+  if ($j -lt 0) { return }
+  $source = $(if ($j -lt $candidates.Count) { $candidates[$j].Path } else { '' })
+  Add-RobloxAccount $Cfg $roblox $windows $source
 }
 
 function Switch-AccountFlagMenu {
@@ -65,33 +72,13 @@ function Switch-AccountFlagMenu {
   if ($a) { Set-AccountFlag $Cfg $a.Name $Flag (-not $a.$Flag) }
 }
 
-function Add-NewMacroAccountMenu {
-  param($Cfg)
-  $name = (Read-Host 'Nom du nouveau compte Windows (ex : Roblox3)').Trim()
-  if (-not $name) { return }
-  [void](New-MacroAccount $Cfg $name (Read-NewPassword $name))
-}
-
-function Add-ExistingAccountMenu {
-  param($Cfg)
-  $candidates = @(Get-AddableWindowsAccounts $Cfg)
-  if (-not $candidates.Count) { Write-Host 'Aucun autre compte Windows disponible.' -ForegroundColor Yellow; return }
-  $i = Select-Index $candidates 'Compte à ajouter'
-  if ($i -lt 0) { return }
-  $password = $null
-  if (Confirm-Action 'Enregistrer son mot de passe maintenant (sinon Windows le demandera à la connexion) ?') {
-    $password = Read-Host "Mot de passe Windows actuel de $($candidates[$i])" -AsSecureString
-  }
-  [void](Add-ExistingMacroAccount $Cfg $candidates[$i] $password)
-}
-
 function Set-AccountPasswordMenu {
   param($Cfg)
   $a = Select-OneAccount $Cfg
   if (-not $a) { return }
-  $i = Select-Index @('Enregistrer le mot de passe actuel (ne change rien dans Windows)', "Changer le mot de passe Windows de $($a.Name)") 'Choix'
-  if ($i -eq 0) { Set-AccountPasswordValue $Cfg $a.Name (Read-Host "Mot de passe Windows actuel de $($a.Name)" -AsSecureString) $false }
-  elseif ($i -eq 1) { Set-AccountPasswordValue $Cfg $a.Name (Read-NewPassword $a.Name) $true }
+  $i = Select-Index @('Générer un nouveau mot de passe et le mémoriser', 'Enregistrer le mot de passe actuel (ne change rien dans Windows)') 'Choix'
+  if ($i -eq 0) { Reset-AccountPassword $Cfg $a.Name }
+  elseif ($i -eq 1) { Set-AccountPasswordValue $Cfg $a.Name (Read-Host "Mot de passe Windows actuel de $($a.Name)" -AsSecureString) $false }
 }
 
 function Remove-MacroAccountMenu {
@@ -134,34 +121,30 @@ function Show-AccountsMenu {
     # Re-read every time: the supervisor or a window may have changed it.
     $cfg = Get-BssConfig
     Clear-Host
-    Write-Host '=== Comptes et macros ===' -ForegroundColor Cyan
+    Write-Host '=== Comptes Roblox ===' -ForegroundColor Cyan
     foreach ($a in @($cfg.Accounts)) {
       $flags = @()
       if (-not $a.Enabled) { $flags += 'exclu' }
       if ($a.Paused) { $flags += 'pause' }
-      Write-Host ('  {0,-12} {1,-11} {2} {3}' -f $a.Name, $a.Ip, $(if ($a.MacroPath) { Split-Path $a.MacroPath -Leaf } else { '(aucune macro)' }), $(if ($flags) { "[$($flags -join ', ')]" } else { '' }))
+      Write-Host ('  {0,-16} {1,-16} {2,-11} {3} {4}' -f $(if ($a.Roblox) { $a.Roblox } else { '?' }), $a.Name, $a.Ip, $(if ($a.MacroPath) { Split-Path $a.MacroPath -Leaf } else { '(aucune macro)' }), $(if ($flags) { "[$($flags -join ', ')]" } else { '' }))
     }
     Write-Host ''
-    Write-Host '  1. Associer une macro à un compte'
-    Write-Host '  2. Choisir la branche d''une macro (ou celle par défaut)'
-    Write-Host '  3. Convertir une ancienne macro en version Cursed'
+    Write-Host '  1. Ajouter un compte Roblox (compte Windows, macro, Roblox)'
+    Write-Host '  2. Changer la macro d''un compte'
+    Write-Host '  3. Choisir la branche d''une macro (ou celle par défaut)'
     Write-Host '  4. Pause / maintenance d''un compte'
     Write-Host '  5. Inclure / exclure un compte'
-    Write-Host '  6. Créer un compte Windows macro'
-    Write-Host '  7. Ajouter un compte Windows existant'
-    Write-Host '  8. Mot de passe d''un compte'
-    Write-Host '  9. Retirer un compte'
+    Write-Host '  6. Mot de passe d''un compte'
+    Write-Host '  7. Retirer un compte'
     Write-Host '  0. Retour'
     switch (Read-Host "`nChoix") {
-      '1' { Invoke-MenuChoice { Set-AccountMacro $cfg } }
-      '2' { Invoke-MenuChoice { Set-MacroBranchMenu $cfg } }
-      '3' { Invoke-MenuChoice { Convert-MacroMenu $cfg } }
+      '1' { Invoke-MenuChoice { Add-RobloxAccountMenu $cfg } }
+      '2' { Invoke-MenuChoice { Set-AccountMacro $cfg } }
+      '3' { Invoke-MenuChoice { Set-MacroBranchMenu $cfg } }
       '4' { Invoke-MenuChoice { Switch-AccountFlagMenu $cfg 'Paused' } }
       '5' { Invoke-MenuChoice { Switch-AccountFlagMenu $cfg 'Enabled' } }
-      '6' { Invoke-MenuChoice { Add-NewMacroAccountMenu $cfg } }
-      '7' { Invoke-MenuChoice { Add-ExistingAccountMenu $cfg } }
-      '8' { Invoke-MenuChoice { Set-AccountPasswordMenu $cfg } }
-      '9' { Invoke-MenuChoice { Remove-MacroAccountMenu $cfg } }
+      '6' { Invoke-MenuChoice { Set-AccountPasswordMenu $cfg } }
+      '7' { Invoke-MenuChoice { Remove-MacroAccountMenu $cfg } }
       '0' { return }
       '' { return }
     }

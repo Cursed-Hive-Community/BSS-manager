@@ -32,7 +32,8 @@ function Start-All {
   $opened = 0
   for ($i = 0; $i -lt $accounts.Count; $i++) {
     $a = $accounts[$i]
-    if (-not (Get-LocalUser -Name $a.Name -ErrorAction SilentlyContinue)) { Write-Log "$($a.Name) : compte Windows introuvable, ignoré." WARN; continue }
+    $missing = Get-AccountReadiness $a
+    if ($missing) { Write-Log "$($a.Roblox) ($($a.Name)) : pas prêt, $missing." WARN; continue }
     $session = Get-AccountSession $a $sessions
     if (Test-SessionConnected $session) {
       if ($a.MacroPath -and -not (Test-NatroRunning $a $session.Id)) {
@@ -95,37 +96,145 @@ function Get-AccountByName {
   return $a
 }
 
-function New-MacroAccount {
-  param($Cfg, [string] $Name, [Security.SecureString] $Password)
-  if ($Name -notmatch '^[A-Za-z0-9_-]{1,20}$') { throw 'Nom invalide (lettres, chiffres, - et _, 20 caractères max).' }
-  if (Get-LocalUser -Name $Name -ErrorAction SilentlyContinue) { throw 'Ce compte Windows existe déjà : ajoute-le comme compte existant.' }
-  if (-not $Password -or $Password.Length -eq 0) { throw 'Un mot de passe est obligatoire pour le Bureau à distance.' }
-  New-LocalUser -Name $Name -Password $Password -PasswordNeverExpires -AccountNeverExpires -Description 'Bee Swarm macro account (BSS Manager)' | Out-Null
-  Add-ToRdpGroups $Name
-  $account = New-AccountEntry $Cfg $Name
-  Set-AccountCredential $account $Password
-  $Cfg.Accounts = @($Cfg.Accounts) + $account
-  Save-BssConfig $Cfg
-  Write-Log "Compte $Name créé (adresse $($account.Ip), mot de passe enregistré). Ouvre sa session une fois pour installer Roblox, puis associe-lui une macro." OK
-  return $account
+function Wait-Until {
+  param([scriptblock] $Condition, [int] $TimeoutSec, [int] $StepSec = 5)
+  $end = (Get-Date).AddSeconds($TimeoutSec)
+  while ((Get-Date) -lt $end) {
+    if (& $Condition) { return $true }
+    Start-Sleep -Seconds $StepSec
+  }
+  return $false
 }
 
-function Get-AddableWindowsAccounts {
+# Downloads the official installer once a week and refuses it unless it
+# carries a valid Roblox Corporation signature.
+# https://learn.microsoft.com/powershell/module/microsoft.powershell.security/get-authenticodesignature
+function Get-RobloxInstaller {
+  $dir = Join-Path $Script:Bss.StateDir 'downloads'
+  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+  $file = Join-Path $dir 'RobloxPlayerInstaller.exe'
+  if (-not (Test-Path $file) -or (Get-Item $file).LastWriteTime -lt (Get-Date).AddDays(-7)) {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    Write-Log 'Téléchargement de l''installateur Roblox (roblox.com)...'
+    Invoke-WebRequest -UseBasicParsing -Uri 'https://www.roblox.com/download/client?os=win' -OutFile $file -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+  }
+  $signature = Get-AuthenticodeSignature $file
+  if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O="?Roblox Corporation') {
+    Remove-Item $file -Force
+    throw "Installateur Roblox refusé : signature $($signature.Status), $($signature.SignerCertificate.Subject)"
+  }
+  return $file
+}
+
+# Runs the installer inside the account's own session (Roblox installs per
+# user), through a one-shot task with an Interactive principal.
+function Install-RobloxInSession {
+  param($Account)
+  if (Test-RobloxInstalled $Account.Name) { Write-Log "$($Account.Name) : Roblox déjà installé."; return $true }
+  $installer = Get-RobloxInstaller
+  $user = Get-QualifiedUser $Account.Name
+  $name = "RobloxSetup-$($Account.Name)"
+  $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+  Register-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -Action (New-ScheduledTaskAction -Execute $installer) `
+    -Principal $principal -Settings $settings -Description 'One-shot Roblox install (BSS Manager)' -Force | Out-Null
+  try {
+    Write-Log "$($Account.Name) : installation de Roblox dans sa session..."
+    Start-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name
+    $done = Wait-Until { Test-RobloxInstalled $Account.Name } 600 10
+  } finally {
+    Unregister-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+  }
+  if ($done) { Write-Log "$($Account.Name) : Roblox installé." OK }
+  return $done
+}
+
+# Every step needed for one Roblox account, each skipped when already done,
+# so running it again resumes where it stopped.
+function Add-RobloxAccount {
+  param($Cfg, [string] $Roblox, [string] $WindowsUser, [string] $SourcePath)
+  if (-not $WindowsUser) { $WindowsUser = $Roblox }
+  if ($Roblox -notmatch '^[A-Za-z0-9_]{3,20}$') { throw "Nom Roblox invalide : $Roblox" }
+  if (-not (Test-ValidAccountName $WindowsUser)) { throw "Nom de compte Windows impossible : $WindowsUser (3 à 20 lettres, chiffres ou _, différent du nom du PC et du tien)." }
+  Write-Log "=== $Roblox : préparation (compte Windows $WindowsUser) ==="
+
+  if (-not (Get-WrapperState $Cfg).Healthy) {
+    if (-not (Update-RdpWrapper $Cfg)) { throw 'RDP Wrapper inutilisable : la session ne pourrait pas s''ouvrir.' }
+  }
+
+  $account = $Cfg.Accounts | Where-Object { $_.Name -eq $WindowsUser } | Select-Object -First 1
+  if (-not $account) {
+    $account = New-AccountEntry $Cfg $WindowsUser $Roblox
+    $Cfg.Accounts = @($Cfg.Accounts) + $account
+  }
+  $account.Roblox = $Roblox
+  if (-not (Get-LocalUser -Name $WindowsUser -ErrorAction SilentlyContinue)) {
+    $password = New-RandomPassword
+    New-LocalUser -Name $WindowsUser -Password $password -PasswordNeverExpires -AccountNeverExpires -UserMayNotChangePassword -Description "Bee Swarm macro account for $Roblox (BSS Manager)" | Out-Null
+    Set-AccountCredential $account $password
+    Write-Log "Compte Windows $WindowsUser créé, mot de passe généré et mémorisé." OK
+  } elseif (-not [BssNative]::CredExists((Get-CredTarget $account))) {
+    $password = New-RandomPassword
+    Set-LocalUser -Name $WindowsUser -Password $password
+    Set-AccountCredential $account $password
+    Write-Log "Compte Windows $WindowsUser existant : nouveau mot de passe généré et mémorisé." WARN
+  }
+  Add-ToRdpGroups $WindowsUser
+  # Two Windows accounts playing one Roblox account would fight over it.
+  foreach ($other in @($Cfg.Accounts | Where-Object { $_.Name -ne $WindowsUser -and $_.Roblox -eq $Roblox -and $_.Enabled })) {
+    $other.Enabled = $false
+    Write-Log "$($other.Name) exclu : $Roblox a maintenant son propre compte Windows ($WindowsUser)." WARN
+  }
+  Save-BssConfig $Cfg
+
+  $account.MacroPath = New-CleanMacro $Cfg $Roblox $SourcePath
+  Save-BssConfig $Cfg
+
+  if (-not (Test-SessionConnected (Get-AccountSession $account))) { [void](Open-AccountSession $Cfg $account) }
+  # The first sign-in builds the Windows profile, which can take a minute.
+  if (-not (Wait-Until { (Test-SessionConnected (Get-AccountSession $account)) -and (Get-UserProfilePath $WindowsUser) } 300 5)) {
+    throw "La session de $WindowsUser ne s'est pas ouverte en 5 minutes."
+  }
+  if (-not (Install-RobloxInSession $account)) { throw "Roblox ne s'est pas installé dans la session de $WindowsUser en 10 minutes." }
+
+  $signedIn = Get-RobloxSignedIn $WindowsUser
+  if ($signedIn -eq $Roblox) {
+    Sync-NatroTask $Cfg $account
+    Start-Natro $account
+    Write-Log "$Roblox est prêt : la macro démarre." OK
+  } else {
+    Write-Log "$Roblox : dans la fenêtre Bureau à distance de $WindowsUser, connecte-toi à Roblox avec $Roblox. La macro démarrera ensuite toute seule (superviseur) ou avec « Lancer »." WARN
+  }
+}
+
+# Roblox accounts the macro folders suggest, with the folders that could
+# serve as a base, most recently used first and Cursed ones before old ones.
+function Get-RobloxAccountSuggestions {
   param($Cfg)
-  $known = @($Cfg.Accounts | ForEach-Object { $_.Name })
-  return @(Get-LocalUser | Where-Object { $_.Enabled -and $_.Name -ne $env:USERNAME -and $known -notcontains $_.Name } | ForEach-Object { $_.Name })
+  $owned = @($Cfg.Accounts | Where-Object { $_.Roblox -and $_.Name -eq $_.Roblox } | ForEach-Object { $_.Roblox })
+  $groups = @{}
+  foreach ($m in Find-Macros $Cfg) {
+    $guess = Get-RobloxNameGuess $m.Name
+    if (-not $guess) { continue }
+    if (-not $groups.ContainsKey($guess)) { $groups[$guess] = @() }
+    $groups[$guess] += $m
+  }
+  foreach ($name in ($groups.Keys | Sort-Object)) {
+    [pscustomobject]@{
+      Roblox     = $name
+      Configured = ($owned -contains $name)
+      Candidates = @($groups[$name] | Sort-Object @{ Expression = { -not $_.IsGit } }, @{ Expression = { $_.LastUsed }; Descending = $true })
+    }
+  }
 }
 
-function Add-ExistingMacroAccount {
-  param($Cfg, [string] $Name, [Security.SecureString] $Password)
-  if ((Get-AddableWindowsAccounts $Cfg) -notcontains $Name) { throw "$Name n'est pas un compte Windows ajoutable." }
-  Add-ToRdpGroups $Name
-  $account = New-AccountEntry $Cfg $Name
-  if ($Password -and $Password.Length) { Set-AccountCredential $account $Password }
-  $Cfg.Accounts = @($Cfg.Accounts) + $account
-  Save-BssConfig $Cfg
-  Write-Log "$Name ajouté (adresse $($account.Ip))." OK
-  return $account
+function Reset-AccountPassword {
+  param($Cfg, [string] $Name)
+  $a = Get-AccountByName $Cfg $Name
+  $password = New-RandomPassword
+  Set-LocalUser -Name $Name -Password $password
+  Set-AccountCredential $a $password
+  Write-Log "$Name : nouveau mot de passe généré et mémorisé." OK
 }
 
 function Set-AccountMacroPath {
@@ -327,7 +436,9 @@ function Get-AccountRows {
     if ($state) { $state = "pas prêt : $state" }
     elseif ($Supervisor -and $Supervisor.Alive -and $Supervisor.Accounts.PSObject.Properties.Name -contains $a.Name) { $state = $Supervisor.Accounts.($a.Name).State }
     [pscustomobject]@{
+      Roblox      = $(if ($a.Roblox) { $a.Roblox } else { '?' })
       Compte      = $a.Name
+      'Connecté'  = [string](Get-RobloxSignedIn $a.Name)
       Inclus      = $(if ($a.Enabled) { 'oui' } else { 'non' })
       Pause       = $(if ($a.Paused) { 'oui' } else { '' })
       Adresse     = $a.Ip

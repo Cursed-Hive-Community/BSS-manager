@@ -13,6 +13,8 @@
 # the two never disagree.
 
 $Script:UpdatingStaleMinutes = 15
+$Script:ArchiveFolderName = '_Anciennes'
+$Script:MacroFolderPrefix = 'Natro_Macro_'
 
 function Get-NatroIniPath { param([string] $Path) return (Join-Path $Path 'settings\nm_config.ini') }
 
@@ -103,7 +105,8 @@ function Find-Macros {
   }
   $paths = foreach ($base in $bases) {
     Get-ChildItem $base -Directory -Depth 1 -ErrorAction SilentlyContinue |
-      Where-Object { Test-NatroFolder $_.FullName } | ForEach-Object { $_.FullName }
+      Where-Object { $_.FullName -notlike "*\$($Script:ArchiveFolderName)\*" -and (Test-NatroFolder $_.FullName) } |
+      ForEach-Object { $_.FullName }
   }
   return @($paths | Sort-Object -Unique | ForEach-Object { Get-MacroInfo $Cfg $_ } | Sort-Object LastUsed -Descending)
 }
@@ -164,9 +167,11 @@ function Sync-NatroTask {
   $existing = Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -ErrorAction SilentlyContinue
   $bat = ''
   if ($Account.MacroPath) { $bat = Join-Path $Account.MacroPath 'START.bat' }
-  if (-not ($Account.Enabled -and $bat -and (Test-Path $bat))) {
+  # No task until the account is ready: during its first sign-in Roblox is
+  # not installed yet, and Natro would try to open it anyway.
+  if (-not ($Account.Enabled -and $bat -and (Test-Path $bat) -and -not (Get-AccountReadiness $Account))) {
     if ($existing) { Unregister-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -Confirm:$false }
-    if ($Account.Enabled -and $Account.MacroPath) { Write-Log "$($Account.Name) : START.bat introuvable dans $($Account.MacroPath)." WARN }
+    if ($Account.Enabled -and $Account.MacroPath -and -not (Test-Path $bat)) { Write-Log "$($Account.Name) : START.bat introuvable dans $($Account.MacroPath)." WARN }
     return
   }
   $user = Get-QualifiedUser $Account.Name
@@ -252,16 +257,78 @@ function Set-MacroBranch {
   if ($owners.Count) { Update-Macros $Cfg -Names $owners } else { [void](Update-Macro $Cfg $Path) }
 }
 
-# Turns an old release folder into a git instance of the fork, in place.
-function Convert-MacroToGit {
+# ---------------------------------------------------------------------------
+# One clean macro per Roblox account
+# ---------------------------------------------------------------------------
+# Old release folders are not converted in place: a new folder named after
+# the Roblox account is cloned from a Cursed instance, the old settings are
+# copied into it, and the old folder is moved to _Anciennes. Names stay clean
+# and nothing is lost.
+
+# The Roblox account a folder name points at, by the owner's naming habit:
+# "Natro_Macro_v1.0.1 Player25bee - Red" -> Player25bee. Only a guess,
+# shown for the owner to confirm.
+function Get-RobloxNameGuess {
+  param([string] $FolderName)
+  $rest = $FolderName -replace '^Natro[ _]Macro[ _]*', '' -replace '^v?\d+(\.\d+)+[a-z]?\s*', ''
+  $ignored = '^(Copie|Copy|Blue|Red|White|Alts?|v?\d+(\.\d+)*)$'
+  return ($rest -split '[\s\-]+' | Where-Object { $_ -match '^[A-Za-z0-9_]{3,20}$' -and $_ -notmatch $ignored } | Select-Object -First 1)
+}
+
+function Get-RobloxMacroPath {
+  param($Cfg, [string] $Roblox)
+  return (Join-Path $Cfg.MacroRoot ($Script:MacroFolderPrefix + $Roblox))
+}
+
+function Move-MacroToArchive {
   param($Cfg, [string] $Path)
-  if (Get-NatroProcesses $Path) { Write-Log 'Cette macro tourne : arrête-la avant de la convertir.' ERROR; return $false }
-  $adopt = Find-Macros $Cfg | Where-Object { $_.IsGit -and (Test-Path (Join-Path $_.Path 'tools\nm-git-adopt.ps1')) } | Select-Object -First 1
-  if (-not $adopt) { Write-Log 'Aucune macro Cursed avec tools\nm-git-adopt.ps1 trouvée pour faire la conversion.' ERROR; return $false }
-  $code = Invoke-ForkTool (Join-Path $adopt.Path 'tools\nm-git-adopt.ps1') @('-Target', $Path, '-Branch', $Cfg.DefaultBranch, '-RepoUrl', $Cfg.DefaultRepoUrl, '-Yes')
-  if ($code -ne 0) { Write-Log "Conversion échouée (code $code)." ERROR; return $false }
-  Set-NatroIniValue $Path 'GitBranch' $Cfg.DefaultBranch
-  Set-NatroIniValue $Path 'GitRepoUrl' $Cfg.DefaultRepoUrl
-  Write-Log "$(Split-Path $Path -Leaf) suit maintenant $($Cfg.DefaultBranch). Tes réglages sont gardés." OK
-  return $true
+  $root = $Cfg.MacroRoot.TrimEnd('\') + '\'
+  if (-not $Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+    Write-Log "$Path est hors de $($Cfg.MacroRoot) : laissé en place." WARN
+    return
+  }
+  if (Get-NatroProcesses $Path) { Write-Log "$(Split-Path $Path -Leaf) tourne : pas rangé dans $($Script:ArchiveFolderName)." WARN; return }
+  $archive = Join-Path $Cfg.MacroRoot $Script:ArchiveFolderName
+  if (-not (Test-Path $archive)) { New-Item -ItemType Directory -Path $archive | Out-Null }
+  $target = Join-Path $archive (Split-Path $Path -Leaf)
+  if (Test-Path $target) { $target = "$target $(Get-Date -Format 'yyyyMMdd-HHmmss')" }
+  Move-Item -LiteralPath $Path -Destination $target
+  Write-Log "Ancien dossier rangé : $target" OK
+}
+
+# Returns the path of the Roblox account's macro, creating it if needed.
+# $SourcePath: a Cursed folder (used as is), an old folder (settings copied,
+# folder archived), or empty (fresh settings).
+function New-CleanMacro {
+  param($Cfg, [string] $Roblox, [string] $SourcePath)
+  $source = $null
+  if ($SourcePath) { $source = Get-MacroInfo $Cfg $SourcePath }
+  if ($source -and $source.IsGit) {
+    Write-Log "$Roblox garde sa macro Cursed : $SourcePath"
+    return $SourcePath
+  }
+  $target = Get-RobloxMacroPath $Cfg $Roblox
+  if (Test-Path $target) {
+    if (-not (Test-Path (Join-Path $target '.git'))) { throw "$target existe déjà et n'est pas une macro Cursed : renomme-le ou choisis-le comme base." }
+    Write-Log "$Roblox a déjà sa macro Cursed : $target"
+    return $target
+  }
+  $template = Find-Macros $Cfg | Where-Object { $_.IsGit -and (Test-Path (Join-Path $_.Path 'tools\nm-new-instance.ps1')) } | Select-Object -First 1
+  if (-not $template) { throw 'Aucune macro Cursed avec tools\nm-new-instance.ps1 pour servir de modèle.' }
+
+  Write-Log "Création de $target depuis $($template.Name)..."
+  $code = Invoke-ForkTool (Join-Path $template.Path 'tools\nm-new-instance.ps1') @('-Name', (Split-Path $target -Leaf), '-Path', $Cfg.MacroRoot, '-Yes')
+  if ($code -ne 0 -or -not (Test-Path $target)) { throw "Création de la macro échouée (code $code)." }
+
+  $settings = Join-Path $target 'settings'
+  if (-not (Test-Path $settings)) { New-Item -ItemType Directory -Path $settings | Out-Null }
+  if ($source) {
+    Copy-Item -Path (Join-Path $SourcePath 'settings\*') -Destination $settings -Recurse -Force
+    Write-Log "Réglages repris de $($source.Name)." OK
+  }
+  Set-NatroIniValue $target 'GitBranch' $Cfg.DefaultBranch
+  Set-NatroIniValue $target 'GitRepoUrl' $Cfg.DefaultRepoUrl
+  [void](Update-Macro $Cfg $target)
+  if ($source) { Move-MacroToArchive $Cfg $SourcePath }
+  return $target
 }

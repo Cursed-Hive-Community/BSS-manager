@@ -132,13 +132,76 @@ function Open-AccountSession {
   return $true
 }
 
-# What the supervisor needs to run an account without anybody at the screen.
+# The Roblox account signed in for a Windows account. The Roblox app writes
+# it to appStorage.json in the profile each time it runs; UserId -1 means
+# signed out. This is what ties a Windows account to a Roblox account, since
+# Natro's own settings do not name the account they play.
+function Get-RobloxSignedIn {
+  param([string] $WindowsUser)
+  $profilePath = Get-UserProfilePath $WindowsUser
+  if (-not $profilePath) { return $null }
+  $file = Join-Path $profilePath 'AppData\Local\Roblox\LocalStorage\appStorage.json'
+  if (-not (Test-Path $file)) { return $null }
+  try {
+    $j = [IO.File]::ReadAllText($file) | ConvertFrom-Json
+    if ([long]$j.UserId -gt 0 -and $j.Username) { return [string]$j.Username }
+  } catch {
+    # Roblox may be writing it; the next refresh reads it again.
+  }
+  return $null
+}
+
+function Test-RobloxInstalled {
+  param([string] $WindowsUser)
+  $profilePath = Get-UserProfilePath $WindowsUser
+  if (-not $profilePath) { return $false }
+  return [bool](Get-ChildItem (Join-Path $profilePath 'AppData\Local\Roblox\Versions') -Filter 'RobloxPlayerBeta.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)
+}
+
+# What an account still lacks to run unattended; empty when ready. Read live
+# every time (a state, not a stored stage), so signing in to Roblox is enough
+# to make an account ready, whoever is watching.
 function Get-AccountReadiness {
   param($Account)
   if (-not (Get-LocalUser -Name $Account.Name -ErrorAction SilentlyContinue)) { return 'compte Windows introuvable' }
   if (-not [BssNative]::CredExists((Get-CredTarget $Account))) { return 'mot de passe non enregistré' }
   if (-not $Account.MacroPath) { return 'aucune macro associée' }
+  if (-not $Account.Roblox) { return 'compte Roblox non renseigné' }
+  # A macro folder named after another account holds that account's settings
+  # (fields, private server, webhook): never run it for this one.
+  $macroOwner = Get-RobloxNameGuess (Split-Path $Account.MacroPath -Leaf)
+  if ($macroOwner -and $macroOwner -ne $Account.Roblox) { return "la macro est celle de $macroOwner, pas de $($Account.Roblox)" }
+  $signedIn = Get-RobloxSignedIn $Account.Name
+  if (-not $signedIn) {
+    if (-not (Test-RobloxInstalled $Account.Name)) { return 'Roblox pas installé dans la session' }
+    return "connecte-toi à Roblox avec $($Account.Roblox) dans la session"
+  }
+  if ($signedIn -ne $Account.Roblox) { return "mauvais compte Roblox ($signedIn au lieu de $($Account.Roblox))" }
   return ''
+}
+
+# A long random password, built straight into a SecureString, with every
+# character class so Windows complexity rules always accept it.
+# https://learn.microsoft.com/dotnet/api/system.security.cryptography.randomnumbergenerator
+function New-RandomPassword {
+  $classes = @('ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!#%+=?@')
+  $all = -join $classes
+  $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+  $bytes = New-Object byte[] 28
+  $rng.GetBytes($bytes)
+  $secure = New-Object Security.SecureString
+  for ($i = 0; $i -lt 24; $i++) { $secure.AppendChar($all[$bytes[$i] % $all.Length]) }
+  for ($i = 0; $i -lt 4; $i++) { $secure.AppendChar($classes[$i][$bytes[24 + $i] % $classes[$i].Length]) }
+  $rng.Dispose()
+  $secure.MakeReadOnly()
+  return $secure
+}
+
+function Test-ValidAccountName {
+  param([string] $Name)
+  # Roblox names are 3-20 letters, digits or underscores, which Windows
+  # accepts as account names, except the computer's own name.
+  return ($Name -match '^[A-Za-z0-9_]{3,20}$' -and $Name -ne $env:COMPUTERNAME -and $Name -ne $env:USERNAME)
 }
 
 function Close-AccountSession {

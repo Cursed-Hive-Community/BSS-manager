@@ -29,6 +29,10 @@ What is proven, by which kind of evidence, and what is not.
 - [x] the window's *Lancer* button opened that session
 - [x] the window builds and renders its four tabs with real data
       (`-Action Gui -SnapshotDir`, images checked by eye)
+- [x] the add-accounts assistant renders the 8 accounts suggested by the
+      folder names, with their base folders
+- [x] the signed-in Roblox account is read (Roblox2: PlayerAlt4), and
+      Roblox2 holding GuidingALT1's macro is reported as not ready
 
 # Loads, never driven
 
@@ -36,6 +40,15 @@ Parsed and loaded, but nobody has run these yet:
 
 - [ ] window buttons and dialogs, clicked by a person (only the rendering
       is proven)
+- [ ] `AddRoblox` end to end: account creation, `nm-new-instance.ps1`,
+      settings copy, move to `_Anciennes`, first sign-in wait, Roblox
+      install through the one-shot task, signature check
+- [ ] Roblox's `appStorage.json` updates once the owner signs in through
+      the freshly installed app
+- [ ] supervisor registers the Natro task and starts Natro once the Roblox
+      sign-in is detected
+- [ ] 1920x1080 sessions on this PC's screen (window larger than the
+      screen?)
 - [ ] one-click start opens the sessions without a password prompt
 - [ ] the `Natro-<account>` task starts Natro inside the account's session,
       at sign-in and on demand

@@ -29,7 +29,8 @@ function Invoke-UiSafe {
   param([scriptblock] $Block)
   try { & $Block } catch {
     Write-Log "Interface : $($_.Exception.Message)" ERROR
-    [void][Windows.Forms.MessageBox]::Show($Script:Ui.Form, $_.Exception.Message, 'BSS Manager', 'OK', 'Error')
+    # A snapshot run has nobody to close a message box: log and carry on.
+    if (-not $Script:Ui.SnapshotDir) { [void][Windows.Forms.MessageBox]::Show($Script:Ui.Form, $_.Exception.Message, 'BSS Manager', 'OK', 'Error') }
   }
 }
 
@@ -191,28 +192,41 @@ function Show-UiDialog {
 
 function Test-UiBusy { return ($Script:Ui.Job -and -not $Script:Ui.Job.HasExited) }
 
+# Actions wait in a queue and run one at a time: two at once could both
+# write config.json or fight over the same session. The queue lives only as
+# long as the window: closing it drops what has not started.
 function Start-UiAction {
   param([string] $Label, [string[]] $Arguments)
-  if (Test-UiBusy) { Show-UiInfo "Une action est déjà en cours : $($Script:Ui.JobLabel). Attends qu'elle se termine."; return }
-  $main = Join-Path $Script:Bss.Root 'BSS-Manager.ps1'
-  $quoted = @($Arguments | ForEach-Object { if ($_ -match '\s') { '"{0}"' -f $_ } else { $_ } })
-  $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"{0}"' -f $main)) + $quoted + @('-Unattended')
-  $Script:Ui.Job = Start-Process -FilePath 'powershell.exe' -ArgumentList $all -WindowStyle Hidden -PassThru
-  $Script:Ui.JobLabel = $Label
+  [void]$Script:Ui.Queue.Add(@{ Label = $Label; Arguments = $Arguments })
   $Script:Ui.Tabs.SelectedTab = $Script:Ui.LogTab
   Update-UiJob
 }
 
+function Start-UiNextJob {
+  $next = $Script:Ui.Queue[0]
+  $Script:Ui.Queue.RemoveAt(0)
+  $main = Join-Path $Script:Bss.Root 'BSS-Manager.ps1'
+  $quoted = @($next.Arguments | ForEach-Object { if ($_ -match '\s') { '"{0}"' -f $_ } else { $_ } })
+  $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"{0}"' -f $main)) + $quoted + @('-Unattended')
+  $Script:Ui.Job = Start-Process -FilePath 'powershell.exe' -ArgumentList $all -WindowStyle Hidden -PassThru
+  $Script:Ui.JobLabel = $next.Label
+}
+
 function Update-UiJob {
-  if (Test-UiBusy) {
-    $Script:Ui.JobStatus.Text = "En cours : $($Script:Ui.JobLabel)..."
-    return
+  if (-not (Test-UiBusy)) {
+    if ($Script:Ui.Job) {
+      $code = $Script:Ui.Job.ExitCode
+      $Script:Ui.LastResult = "Terminé : $($Script:Ui.JobLabel) $(if ($code) { "(erreur, code $code - voir le journal)" } else { '(ok)' })"
+      $Script:Ui.Job = $null
+      Update-UiAccounts -Force
+    }
+    if ($Script:Ui.Queue.Count) { Start-UiNextJob }
   }
-  if ($Script:Ui.Job) {
-    $code = $Script:Ui.Job.ExitCode
-    $Script:Ui.JobStatus.Text = "Terminé : $($Script:Ui.JobLabel) $(if ($code) { "(erreur, code $code - voir le journal)" } else { '(ok)' })"
-    $Script:Ui.Job = $null
-    Update-UiAccounts -Force
+  if (Test-UiBusy) {
+    $waiting = $(if ($Script:Ui.Queue.Count) { " ($($Script:Ui.Queue.Count) en attente)" } else { '' })
+    $Script:Ui.JobStatus.Text = "En cours : $($Script:Ui.JobLabel)...$waiting"
+  } elseif ($Script:Ui.LastResult) {
+    $Script:Ui.JobStatus.Text = $Script:Ui.LastResult
   }
 }
 
@@ -379,47 +393,139 @@ function Set-UiAccountMacro {
   $other = $cfg.Accounts | Where-Object { $path -and $_.Name -ne $name -and $_.MacroPath -eq $path } | Select-Object -First 1
   if ($other -and -not (Confirm-Ui "$($other.Name) utilise déjà cette macro. L'associer quand même ?")) { return }
   Set-AccountMacroPath $cfg $name $path
-  if ($path -and -not $macros[$r.macro - 1].IsGit) { Show-UiInfo 'Cette macro est une ancienne version. Onglet Macros, « Convertir en Cursed », pour la passer sur ta version.' }
+  if ($path -and -not $macros[$r.macro - 1].IsGit) { Show-UiInfo 'Cette macro est une ancienne version. « Ajouter des comptes Roblox » crée une macro propre sur ta version à partir de ce dossier.' }
   Update-UiAccounts -Force
 }
 
-function Set-UiAccountPassword {
+function Reset-UiAccountPassword {
   $name = Get-UiSelectedName
   if (-not $name) { return }
-  $r = Show-UiDialog "Mot de passe de $name" @(
-    @{ Key = 'pwd'; Label = 'Mot de passe'; Kind = 'password' },
-    @{ Key = 'pwd2'; Label = 'Confirmation'; Kind = 'password' },
-    @{ Key = 'change'; Label = 'Changer aussi le mot de passe Windows du compte'; Kind = 'check'; Value = $false }
-  ) "Sans case cochée : enregistre le mot de passe actuel de $name, pour que sa session s'ouvre sans rien demander."
-  if (-not $r) { return }
-  if (-not (Test-SecureEqual $r.pwd $r.pwd2)) { throw 'Les deux mots de passe ne correspondent pas.' }
-  Set-AccountPasswordValue (Get-BssConfig) $name $r.pwd $r.change
+  if (-not (Confirm-Ui "Générer un nouveau mot de passe pour le compte Windows $name et le mémoriser ? Tu n'auras jamais à le taper.")) { return }
+  Reset-AccountPassword (Get-BssConfig) $name
   Update-UiAccounts -Force
 }
 
-function New-UiAccount {
-  $r = Show-UiDialog 'Créer un compte macro' @(
-    @{ Key = 'name'; Label = 'Nom (ex : Roblox3)'; Kind = 'text' },
-    @{ Key = 'pwd'; Label = 'Mot de passe'; Kind = 'password' },
-    @{ Key = 'pwd2'; Label = 'Confirmation'; Kind = 'password' }
-  ) 'Crée un compte Windows dédié à une macro. Ensuite : ouvre sa session une fois pour installer Roblox, puis associe-lui une macro.'
-  if (-not $r) { return }
-  if (-not (Test-SecureEqual $r.pwd $r.pwd2)) { throw 'Les deux mots de passe ne correspondent pas.' }
-  [void](New-MacroAccount (Get-BssConfig) $r.name $r.pwd)
-  Update-UiAccounts -Force
-}
-
-function Add-UiExistingAccount {
+function Open-UiSession {
+  $name = Get-UiSelectedName
+  if (-not $name) { return }
   $cfg = Get-BssConfig
-  $candidates = @(Get-AddableWindowsAccounts $cfg)
-  if (-not $candidates.Count) { Show-UiInfo 'Aucun autre compte Windows disponible.'; return }
-  $r = Show-UiDialog 'Ajouter un compte Windows existant' @(
-    @{ Key = 'name'; Label = 'Compte'; Kind = 'list'; Items = $candidates },
-    @{ Key = 'pwd'; Label = 'Son mot de passe (facultatif)'; Kind = 'password' }
-  )
-  if (-not $r -or $r.name -lt 0) { return }
-  [void](Add-ExistingMacroAccount $cfg $candidates[$r.name] $r.pwd)
-  Update-UiAccounts -Force
+  # Works whatever the readiness: it is how the owner signs in to Roblox.
+  if (-not (Open-AccountSession $cfg (Get-AccountByName $cfg $name))) { Show-UiInfo "La fenêtre de connexion de $name est déjà ouverte." }
+}
+
+function Resume-UiSetup {
+  $name = Get-UiSelectedName
+  if (-not $name) { return }
+  $a = Get-AccountByName (Get-BssConfig) $name
+  if (-not $a.Roblox) { Show-UiInfo 'Ce compte n''a pas de compte Roblox : ajoute plutôt un compte Roblox.'; return }
+  $arguments = @('-Action', 'AddRoblox', '-Roblox', $a.Roblox, '-WindowsUser', $a.Name)
+  if ($a.MacroPath) { $arguments += @('-Path', $a.MacroPath) }
+  Start-UiAction "Préparation de $($a.Roblox)" $arguments
+}
+
+# The add-accounts assistant: one row per Roblox account the folder names
+# suggest, editable, with the folder to start from.
+function Show-UiAddRobloxWizard {
+  $cfg = Get-BssConfig
+  $suggestions = @(Get-RobloxAccountSuggestions $cfg | Where-Object { -not $_.Configured })
+  $allMacros = @(Find-Macros $cfg)
+  $fresh = '(réglages neufs)'
+
+  $f = New-Object Windows.Forms.Form
+  $f.Text = 'Ajouter des comptes Roblox'
+  $f.Size = New-Object Drawing.Size(1000, 560)
+  $f.StartPosition = 'CenterParent'
+  $f.Font = $Script:Ui.Form.Font
+
+  $intro = New-UiLabel ("Coche les comptes Roblox à préparer, corrige leur nom si besoin, et choisis le dossier de base. " +
+    "Pour chacun : compte Windows créé (mot de passe généré), macro propre sur $($cfg.DefaultBranch) avec les réglages du dossier de base, " +
+    "ancien dossier rangé dans $($Script:ArchiveFolderName), session ouverte, Roblox installé. Il te restera à te connecter à Roblox dans chaque session.")
+  $intro.MaximumSize = New-Object Drawing.Size(950, 0)
+  $intro.Dock = 'Top'
+
+  $grid = New-Object Windows.Forms.DataGridView
+  $grid.Dock = 'Fill'
+  $grid.AllowUserToAddRows = $false
+  $grid.RowHeadersVisible = $false
+  $grid.AutoSizeColumnsMode = 'Fill'
+  $check = New-Object Windows.Forms.DataGridViewCheckBoxColumn
+  $check.HeaderText = 'Ajouter'
+  $check.FillWeight = 12
+  $robloxCol = New-Object Windows.Forms.DataGridViewTextBoxColumn
+  $robloxCol.HeaderText = 'Compte Roblox (nom exact)'
+  $robloxCol.FillWeight = 30
+  $windowsCol = New-Object Windows.Forms.DataGridViewTextBoxColumn
+  $windowsCol.HeaderText = 'Compte Windows'
+  $windowsCol.FillWeight = 30
+  $baseCol = New-Object Windows.Forms.DataGridViewComboBoxColumn
+  $baseCol.HeaderText = 'Macro de base'
+  $baseCol.FillWeight = 90
+  [void]$grid.Columns.AddRange([Windows.Forms.DataGridViewColumn[]]@($check, $robloxCol, $windowsCol, $baseCol))
+
+  $paths = @{}
+  $addRow = {
+    param([string] $Roblox, [object[]] $Candidates)
+    $i = $grid.Rows.Add()
+    $row = $grid.Rows[$i]
+    $row.Cells[0].Value = [bool]$Roblox
+    $row.Cells[1].Value = $Roblox
+    $row.Cells[2].Value = $Roblox
+    $cell = $row.Cells[3]
+    foreach ($m in $Candidates) {
+      $label = Format-MacroLabel $m
+      $paths[$label] = $m.Path
+      [void]$cell.Items.Add($label)
+    }
+    [void]$cell.Items.Add($fresh)
+    $cell.Value = $cell.Items[0]
+  }
+  foreach ($s in $suggestions) { & $addRow $s.Roblox $s.Candidates }
+
+  $ok = New-Object Windows.Forms.Button
+  $ok.Text = 'Préparer les comptes cochés'
+  $ok.AutoSize = $true
+  $ok.DialogResult = 'OK'
+  $cancel = New-Object Windows.Forms.Button
+  $cancel.Text = 'Annuler'
+  $cancel.AutoSize = $true
+  $cancel.DialogResult = 'Cancel'
+  $more = New-Object Windows.Forms.Button
+  $more.Text = 'Ajouter une ligne'
+  $more.AutoSize = $true
+  $more.Tag = @{ AddRow = $addRow; Macros = $allMacros }
+  $more.Add_Click({ param($sender) & $sender.Tag.AddRow '' $sender.Tag.Macros })
+  $buttons = New-UiFlow @($cancel, $ok, $more) 'Bottom'
+  $buttons.FlowDirection = 'RightToLeft'
+
+  $f.Controls.Add($grid)
+  $f.Controls.Add($intro)
+  $f.Controls.Add($buttons)
+  $f.AcceptButton = $ok
+  $f.CancelButton = $cancel
+  if ($Script:Ui.SnapshotDir) {
+    $f.Add_Shown({ param($sender) Save-UiFormImage $sender (Join-Path $Script:Ui.SnapshotDir '9-assistant.png'); $sender.Close() })
+  }
+
+  try {
+    if ($f.ShowDialog($Script:Ui.Form) -ne 'OK') { return }
+    $grid.EndEdit()
+    $jobs = @()
+    foreach ($row in $grid.Rows) {
+      if (-not [bool]$row.Cells[0].Value) { continue }
+      $roblox = ([string]$row.Cells[1].Value).Trim()
+      $windows = ([string]$row.Cells[2].Value).Trim()
+      if ($roblox -notmatch '^[A-Za-z0-9_]{3,20}$') { throw "Nom Roblox invalide : « $roblox »." }
+      if (-not $windows) { $windows = $roblox }
+      if (-not (Test-ValidAccountName $windows)) { throw "Nom de compte Windows impossible : « $windows »." }
+      $arguments = @('-Action', 'AddRoblox', '-Roblox', $roblox, '-WindowsUser', $windows)
+      $base = [string]$row.Cells[3].Value
+      if ($base -and $base -ne $fresh) { $arguments += @('-Path', $paths[$base]) }
+      $jobs += @{ Label = "Préparation de $roblox"; Arguments = $arguments }
+    }
+    if (-not $jobs.Count) { return }
+    if (-not (Confirm-Ui "Préparer $($jobs.Count) compte(s) Roblox, l'un après l'autre ? Compte quelques minutes par compte (création, copie, session, installation de Roblox).")) { return }
+    foreach ($job in $jobs) { Start-UiAction $job.Label $job.Arguments }
+  } finally { $f.Dispose() }
 }
 
 function Remove-UiAccount {
@@ -447,7 +553,7 @@ function Get-UiSelectedMacro {
 function Set-UiMacroBranch {
   $m = Get-UiSelectedMacro
   if (-not $m) { return }
-  if (-not $m.IsGit) { Show-UiInfo 'Convertis d''abord cette macro en version Cursed.'; return }
+  if (-not $m.IsGit) { Show-UiInfo 'Ancienne version : « Ajouter des comptes Roblox » en crée une copie propre sur ta version.'; return }
   $Script:Ui.Form.Cursor = 'WaitCursor'
   try { $branches = @(Get-RemoteBranches $m.Path) } finally { $Script:Ui.Form.Cursor = 'Default' }
   if (-not $branches.Count) { throw 'Impossible de lister les branches (réseau ?).' }
@@ -459,18 +565,9 @@ function Set-UiMacroBranch {
 function Update-UiMacro {
   $m = Get-UiSelectedMacro
   if (-not $m) { return }
-  if (-not $m.IsGit) { Show-UiInfo 'Convertis d''abord cette macro en version Cursed.'; return }
+  if (-not $m.IsGit) { Show-UiInfo 'Ancienne version : « Ajouter des comptes Roblox » en crée une copie propre sur ta version.'; return }
   if (-not (Confirm-Ui "Mettre à jour $($m.Name) ? Elle est arrêtée pendant la mise à jour puis relancée si son compte tourne.")) { return }
   Start-UiAction "Mise à jour de $($m.Name)" @('-Action', 'UpdateMacros', '-Path', $m.Path)
-}
-
-function Convert-UiMacro {
-  $m = Get-UiSelectedMacro
-  if (-not $m) { return }
-  if ($m.IsGit) { Show-UiInfo 'Cette macro est déjà en version Cursed.'; return }
-  $cfg = Get-BssConfig
-  if (-not (Confirm-Ui "Convertir $($m.Name) en version Cursed ($($cfg.DefaultBranch)) ? Ses fichiers sont remplacés, le dossier settings est gardé.")) { return }
-  Start-UiAction "Conversion de $($m.Name)" @('-Action', 'ConvertMacro', '-Path', $m.Path)
 }
 
 # ---------------------------------------------------------------------------
@@ -508,19 +605,20 @@ function Enable-UiAutoLogon {
 
 function New-UiAccountsTab {
   $tab = New-Object Windows.Forms.TabPage
-  $tab.Text = 'Comptes'
+  $tab.Text = 'Comptes Roblox'
   $Script:Ui.AccountsGrid = New-UiGrid
   $Script:Ui.AccountsGrid.Add_DataBindingComplete({ Set-UiAccountColors })
   $buttons = New-UiFlow @(
+    (New-UiButton 'Ajouter des comptes Roblox...' { Show-UiAddRobloxWizard }),
     (New-UiButton 'Lancer' { Invoke-UiAccountAction 'Start' 'Lancer' $false }),
     (New-UiButton 'Arrêter' { Invoke-UiAccountAction 'Stop' 'Arrêter' $true }),
     (New-UiButton 'Relancer la macro' { Invoke-UiAccountAction 'Restart' 'Relancer la macro de' $true }),
+    (New-UiButton 'Ouvrir la session' { Open-UiSession }),
+    (New-UiButton 'Reprendre la préparation' { Resume-UiSetup }),
     (New-UiButton 'Pause / reprendre' { Switch-UiAccountFlag 'Paused' }),
     (New-UiButton 'Inclure / exclure' { Switch-UiAccountFlag 'Enabled' }),
-    (New-UiButton 'Associer une macro...' { Set-UiAccountMacro }),
-    (New-UiButton 'Mot de passe...' { Set-UiAccountPassword }),
-    (New-UiButton 'Créer un compte...' { New-UiAccount }),
-    (New-UiButton 'Ajouter un compte existant...' { Add-UiExistingAccount }),
+    (New-UiButton 'Changer la macro...' { Set-UiAccountMacro }),
+    (New-UiButton 'Nouveau mot de passe' { Reset-UiAccountPassword }),
     (New-UiButton 'Retirer...' { Remove-UiAccount })
   ) 'Bottom'
   $tab.Controls.Add($Script:Ui.AccountsGrid)
@@ -536,7 +634,6 @@ function New-UiMacrosTab {
     (New-UiButton 'Actualiser' { Update-UiMacros }),
     (New-UiButton 'Changer de branche...' { Set-UiMacroBranch }),
     (New-UiButton 'Mettre à jour' { Update-UiMacro }),
-    (New-UiButton 'Convertir en Cursed...' { Convert-UiMacro }),
     (New-UiButton 'Ouvrir le dossier' { $m = Get-UiSelectedMacro; if ($m) { Start-Process explorer.exe $m.Path } })
   ) 'Bottom'
   $tab.Controls.Add($Script:Ui.MacrosGrid)
@@ -650,18 +747,25 @@ function New-UiLogTab {
   return $tab
 }
 
+function Save-UiFormImage {
+  param($Form, [string] $File)
+  [Windows.Forms.Application]::DoEvents()
+  $bmp = New-Object Drawing.Bitmap($Form.Width, $Form.Height)
+  $Form.DrawToBitmap($bmp, (New-Object Drawing.Rectangle(0, 0, $bmp.Width, $bmp.Height)))
+  $bmp.Save($File, [Drawing.Imaging.ImageFormat]::Png)
+  $bmp.Dispose()
+}
+
 function Save-UiSnapshots {
   param([string] $Dir)
   New-Item -ItemType Directory -Force -Path $Dir | Out-Null
   for ($i = 0; $i -lt $Script:Ui.Tabs.TabPages.Count; $i++) {
     $Script:Ui.Tabs.SelectedIndex = $i
     if ($i -eq 1) { Update-UiMacros }
-    [Windows.Forms.Application]::DoEvents()
-    $bmp = New-Object Drawing.Bitmap($Script:Ui.Form.Width, $Script:Ui.Form.Height)
-    $Script:Ui.Form.DrawToBitmap($bmp, (New-Object Drawing.Rectangle(0, 0, $bmp.Width, $bmp.Height)))
-    $bmp.Save((Join-Path $Dir ('{0}-{1}.png' -f $i, $Script:Ui.Tabs.TabPages[$i].Text)), [Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
+    Save-UiFormImage $Script:Ui.Form (Join-Path $Dir ('{0}-{1}.png' -f $i, $Script:Ui.Tabs.TabPages[$i].Text))
   }
+  $Script:Ui.Tabs.SelectedIndex = 0
+  Show-UiAddRobloxWizard
 }
 
 function Show-ManagerWindow {
@@ -677,6 +781,7 @@ function Show-ManagerWindow {
   $form.Font = New-Object Drawing.Font('Segoe UI', 9)
   $form.Icon = [Drawing.Icon]::ExtractAssociatedIcon("$env:SystemRoot\System32\mstsc.exe")
   $Script:Ui.Form = $form
+  $Script:Ui.Queue = New-Object Collections.ArrayList
 
   $Script:Ui.WrapperLabel = New-UiLabel '' $true
   $Script:Ui.SupervisorLabel = New-UiLabel '' $true
@@ -732,8 +837,10 @@ function Show-ManagerWindow {
         Update-UiLog
         $w = $Script:Ui.Wrapper
         $Script:Ui.WrapperDetail.Text = "termsrv.dll $($w.TermsrvVersion), rdpwrap.ini du $($w.IniUpdated), $(if ($w.IniCrlf) { 'CRLF' } else { 'LF !' }), service $($w.Service)"
-        if ($Script:Ui.SnapshotDir) { Save-UiSnapshots $Script:Ui.SnapshotDir; $Script:Ui.Form.Close() }
-        else { $Script:Ui.Timer.Start() }
+        if (-not $Script:Ui.SnapshotDir) { $Script:Ui.Timer.Start() }
+      }
+      if ($Script:Ui.SnapshotDir) {
+        try { Invoke-UiSafe { Save-UiSnapshots $Script:Ui.SnapshotDir } } finally { $Script:Ui.Form.Close() }
       }
     })
   $Script:Ui.SnapshotDir = $SnapshotDir
