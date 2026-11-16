@@ -145,6 +145,18 @@ function Invoke-SelfTest {
         -not (Test-ValidAccountName $env:COMPUTERNAME) -and -not (Test-ValidAccountName $env:USERNAME) -and -not (Test-ValidAccountName 'ab')
     }
 
+    Add-Check 'Account description fits Windows'' 48 characters for a 20-character name' {
+      (Get-AccountDescription ('x' * 20)).Length -le 48
+    }
+
+    Add-Check 'RDP certificate hash matches what mstsc saved for 127.0.0.2' {
+      $saved = (Get-ItemProperty 'HKCU:\Software\Microsoft\Terminal Server Client\Servers\127.0.0.2' -ErrorAction SilentlyContinue).CertHash
+      # Assigned first: piped straight on, the byte array would arrive whole.
+      $hash = Get-RdpCertificateHash
+      if (-not $saved) { return ($hash.Length -eq 32) }
+      (($saved | ForEach-Object { '{0:X2}' -f $_ }) -join '') -eq (($hash | ForEach-Object { '{0:X2}' -f $_ }) -join '')
+    }
+
     Add-Check 'Macro discovery skips the _Anciennes archive' {
       $root = Join-Path $tmp 'macros'
       foreach ($d in 'Natro_Macro_kept', "$($Script:ArchiveFolderName)\Natro_Macro_archived") {

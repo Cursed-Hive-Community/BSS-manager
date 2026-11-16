@@ -170,7 +170,7 @@ function Add-RobloxAccount {
   $account.Roblox = $Roblox
   if (-not (Get-LocalUser -Name $WindowsUser -ErrorAction SilentlyContinue)) {
     $password = New-RandomPassword
-    New-LocalUser -Name $WindowsUser -Password $password -PasswordNeverExpires -AccountNeverExpires -UserMayNotChangePassword -Description "Bee Swarm macro account for $Roblox (BSS Manager)" | Out-Null
+    New-LocalUser -Name $WindowsUser -Password $password -PasswordNeverExpires -AccountNeverExpires -UserMayNotChangePassword -Description (Get-AccountDescription $Roblox) | Out-Null
     Set-AccountCredential $account $password
     Write-Log "Compte Windows $WindowsUser créé, mot de passe généré et mémorisé." OK
   } elseif (-not [BssNative]::CredExists((Get-CredTarget $account))) {

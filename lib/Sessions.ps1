@@ -116,6 +116,30 @@ function Get-AccountClient {
     Where-Object { $_.CommandLine -match $pattern })
 }
 
+# The SHA-256 of this PC's Remote Desktop certificate, the value mstsc saves
+# when "don't ask again" is ticked on its certificate warning (checked
+# against the value it saved for 127.0.0.2 on 2026-11-16).
+function Get-RdpCertificateHash {
+  $cert = Get-ChildItem 'Cert:\LocalMachine\Remote Desktop' -ErrorAction SilentlyContinue | Sort-Object NotAfter -Descending | Select-Object -First 1
+  if (-not $cert) { return $null }
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try { return , $sha.ComputeHash($cert.RawData) } finally { $sha.Dispose() }
+}
+
+# mstsc /v: cannot lower the certificate check the way an .rdp file could,
+# and a warning would stall an unattended start. Approving this PC's own
+# certificate for the account's loopback address does what ticking the box
+# does, and still warns if the certificate ever differs.
+function Approve-LoopbackCertificate {
+  param($Account)
+  $hash = Get-RdpCertificateHash
+  if (-not $hash) { Write-Log 'Certificat Bureau à distance introuvable : Windows demandera de le confirmer.' WARN; return }
+  $key = "HKCU:\Software\Microsoft\Terminal Server Client\Servers\$($Account.Ip)"
+  if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+  New-ItemProperty -Path $key -Name CertHash -Value ([byte[]]$hash) -PropertyType Binary -Force | Out-Null
+  New-ItemProperty -Path $key -Name UsernameHint -Value (Get-QualifiedUser $Account.Name) -PropertyType String -Force | Out-Null
+}
+
 # Opens a new session, or reattaches a disconnected one: mstsc does either.
 # Never a second client for the same account: one waiting on a password or
 # still connecting is left alone, so windows cannot pile up.
@@ -128,6 +152,7 @@ function Open-AccountSession {
   if (-not [BssNative]::CredExists((Get-CredTarget $Account))) {
     Write-Log "$($Account.Name) : aucun mot de passe enregistré, Windows va le demander (coche « Mémoriser »)." WARN
   }
+  Approve-LoopbackCertificate $Account
   Start-Process -FilePath "$env:SystemRoot\System32\mstsc.exe" -ArgumentList (Get-MstscArguments $Cfg $Account)
   return $true
 }
@@ -195,6 +220,14 @@ function New-RandomPassword {
   $rng.Dispose()
   $secure.MakeReadOnly()
   return $secure
+}
+
+# Windows caps a local account description at 48 characters; with a
+# 20-character Roblox name this stays at 33.
+# https://learn.microsoft.com/powershell/module/microsoft.powershell.localaccounts/new-localuser
+function Get-AccountDescription {
+  param([string] $Roblox)
+  return "BSS Manager: $Roblox"
 }
 
 function Test-ValidAccountName {
