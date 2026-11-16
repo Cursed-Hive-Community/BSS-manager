@@ -1,0 +1,8 @@
+# Machine-specific configuration: account names, paths
+config.json
+
+# Runtime output
+logs/
+state/
+inbox/
+*.tmp
