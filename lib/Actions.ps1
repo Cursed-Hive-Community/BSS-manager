@@ -46,6 +46,9 @@ function Start-All {
       }
       continue
     }
+    # The session's sign-in starts Natro through its own task, not through
+    # Start-Natro, so Roblox's settings are put in place here, before it.
+    try { [void](Set-AccountRobloxSettings $a) } catch { Write-Log "$($a.Name) : réglages Roblox non appliqués, $($_.Exception.Message)" WARN }
     if ($opened -gt 0) { Start-Sleep -Seconds ([int]$Cfg.DelayBetweenSessionsSec) }
     $what = $(if ($session) { 'reconnexion' } elseif ($a.MacroPath) { "ouverture, Natro démarre ~$($Cfg.NatroStartDelaySec) s après" } else { 'ouverture, aucune macro associée' })
     Write-Log "$($a.Name) : $what ($($a.Ip))."
@@ -534,6 +537,7 @@ function Get-AccountRows {
       Branche     = $(if ($macro -and $macro.IsGit) { $macro.Branch } elseif ($macro) { 'ancienne' } else { '' })
       Session     = (Format-SessionState $session)
       Natro       = $(if ($session -and $a.MacroPath -and (Test-NatroRunning $a $session.Id $processes)) { 'tourne' } elseif ($session) { 'arrêté' } else { '' })
+      'Réglages Roblox' = (Get-RobloxSettingsState $a)
       'État'      = $state
     }
   }

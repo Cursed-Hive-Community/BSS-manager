@@ -655,6 +655,7 @@ function New-UiAccountsTab {
     (New-UiButton 'Relancer la macro' { Invoke-UiAccountAction 'Restart' 'Relancer la macro de' $true }),
     (New-UiButton 'Ouvrir la session' { Open-UiSession }),
     (New-UiButton 'Ouvrir Roblox' { Invoke-UiAccountAction 'OpenRoblox' 'Ouvrir Roblox pour' $false }),
+    (New-UiButton 'Réglages Roblox' { Invoke-UiAccountAction 'RobloxSettings' 'Appliquer les réglages Roblox (graphismes au plus bas, plein écran, sans haptique, réglages Natro) à ; Roblox sera fermé un instant puis rouvert par Natro,' $true }),
     (New-UiButton 'Reprendre la préparation' { Resume-UiSetup }),
     (New-UiButton 'Pause / reprendre' { Switch-UiAccountFlag 'Paused' }),
     (New-UiButton 'Inclure / exclure' { Switch-UiAccountFlag 'Enabled' }),

@@ -348,6 +348,130 @@ function Set-AccountPrivacyOff {
   else { Write-Log "$($Account.Name) : session pas chargée, confidentialité non réglée." WARN }
 }
 
+# ---------------------------------------------------------------------------
+# Roblox's own settings in each macro account
+# ---------------------------------------------------------------------------
+# What Natro checks in GlobalBasicSettings (nm_MsgBoxIncorrectRobloxSettings,
+# "Web Version", the installed player), plus the owner's choices of
+# 2026-11-16: graphics manual and lowest, fullscreen, no haptics. Graphics
+# levels are stored as 2 x level + 1 (level 10 is 21), so the lowest manual
+# level is 3; 0 means automatic, which Natro refuses.
+$Script:RobloxSettings = @(
+  @('int', 'GraphicsQualityLevel', '3'),
+  @('token', 'SavedQualityLevel', '1'),
+  @('token', 'PreferredTextSize', '1'),
+  @('token', 'ControlMode', '1'),                 # Shift Lock on
+  @('bool', 'CameraYInverted', 'false'),
+  @('bool', 'OnScreenProfilerEnabled', 'false'),
+  @('token', 'ComputerCameraMovementMode', '1'),  # Classic
+  @('token', 'ComputerMovementMode', '1'),        # keyboard and mouse
+  @('bool', 'Fullscreen', 'true'),
+  @('float', 'HapticStrength', '0')
+)
+
+function Get-RobloxSettingsFile {
+  param([string] $WindowsUser)
+  $profilePath = Get-UserProfilePath $WindowsUser
+  if (-not $profilePath) { return $null }
+  try {
+    return (Get-ChildItem (Join-Path $profilePath 'AppData\Local\Roblox') -Filter 'GlobalBasicSettings_*.xml' -ErrorAction Stop |
+      Where-Object { $_.Name -notmatch 'Studio' } | Sort-Object Name -Descending | Select-Object -First 1)
+  } catch { return $null }
+}
+
+function Get-RobloxSettingsProperties {
+  param([xml] $Doc)
+  $props = $Doc.SelectSingleNode("//Item[@class='UserGameSettings']/Properties")
+  if (-not $props) { throw 'Fichier de réglages Roblox inattendu : pas de UserGameSettings.' }
+  return $props
+}
+
+# Names of the settings that differ from (or are missing in) what is wanted.
+function Get-RobloxSettingsDifferences {
+  param([xml] $Doc)
+  $props = Get-RobloxSettingsProperties $Doc
+  foreach ($s in $Script:RobloxSettings) {
+    $node = $props.SelectSingleNode("*[@name='$($s[1])']")
+    if (-not $node -or $node.InnerText -ne $s[2]) { $s[1] }
+  }
+}
+
+# Sets the wanted values, adding a property Roblox has not written yet, and
+# leaves every other setting as it is. Returns how many changed.
+function Set-RobloxSettingsXml {
+  param([xml] $Doc)
+  $props = Get-RobloxSettingsProperties $Doc
+  $changed = 0
+  foreach ($s in $Script:RobloxSettings) {
+    $node = $props.SelectSingleNode("*[@name='$($s[1])']")
+    if (-not $node) {
+      $node = $Doc.CreateElement($s[0])
+      [void]$node.SetAttribute('name', $s[1])
+      [void]$props.AppendChild($node)
+    }
+    if ($node.InnerText -ne $s[2]) { $node.InnerText = $s[2]; $changed++ }
+  }
+  return $changed
+}
+
+# Roblox keeps the file's original layout: no BOM, no XML declaration.
+function Save-RobloxSettingsXml {
+  param([xml] $Doc, [string] $Path)
+  $settings = New-Object Xml.XmlWriterSettings
+  $settings.Encoding = New-Object Text.UTF8Encoding $false
+  $settings.OmitXmlDeclaration = $true
+  $writer = [Xml.XmlWriter]::Create($Path, $settings)
+  try { $Doc.Save($writer) } finally { $writer.Dispose() }
+}
+
+function Get-RobloxProcessesInSession {
+  param($Account)
+  $session = Get-AccountSession $Account
+  if (-not $session) { return @() }
+  return @(Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session.Id })
+}
+
+# 'conformes', 'à appliquer (n)', or why it cannot be read.
+function Get-RobloxSettingsState {
+  param($Account)
+  $file = Get-RobloxSettingsFile $Account.Name
+  if (-not $file) { return 'Roblox jamais lancé' }
+  try {
+    $doc = New-Object Xml.XmlDocument
+    $doc.Load($file.FullName)
+    $diff = @(Get-RobloxSettingsDifferences $doc)
+    if ($diff.Count) { return "à appliquer ($($diff.Count))" }
+    return 'conformes'
+  } catch { return 'illisible' }
+}
+
+# Roblox rewrites this file from memory when it exits, so it is written
+# while Roblox is closed. With -CloseRoblox, a running Roblox in the session
+# is killed first: a killed Roblox saves nothing, and Natro reopens it with
+# the new settings. Returns $true when the file holds the wanted values.
+function Set-AccountRobloxSettings {
+  param($Account, [switch] $CloseRoblox)
+  $file = Get-RobloxSettingsFile $Account.Name
+  if (-not $file) { Write-Log "$($Account.Name) : Roblox n'a jamais été lancé, réglages appliqués plus tard." WARN; return $false }
+  $doc = New-Object Xml.XmlDocument
+  $doc.PreserveWhitespace = $true
+  $doc.Load($file.FullName)
+  if (-not @(Get-RobloxSettingsDifferences $doc).Count) { return $true }
+  $running = Get-RobloxProcessesInSession $Account
+  if ($running.Count) {
+    if (-not $CloseRoblox) { Write-Log "$($Account.Name) : Roblox est ouvert, réglages appliqués à sa prochaine fermeture." WARN; return $false }
+    $running | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    $doc.Load($file.FullName)
+  }
+  $backup = "$($file.FullName).bak"
+  if (-not (Test-Path $backup)) { Copy-Item $file.FullName $backup }
+  $changed = Set-RobloxSettingsXml $doc
+  Save-RobloxSettingsXml $doc $file.FullName
+  Write-Log "$($Account.Name) : $changed réglage(s) Roblox appliqué(s) (graphismes au plus bas, plein écran, sans haptique, réglages Natro)." OK
+  return $true
+}
+
 function Test-ValidAccountName {
   param([string] $Name)
   # Roblox names are 3-20 letters, digits or underscores, which Windows

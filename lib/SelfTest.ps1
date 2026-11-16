@@ -213,6 +213,34 @@ function Invoke-SelfTest {
       @($p).Count -eq 2 -and @($origins | Where-Object { $_ -notmatch '^https://(www\.)?roblox\.com$' }).Count -eq 0
     }
 
+    Add-Check 'Roblox settings: wanted values set, missing ones added, others kept, file layout kept' {
+      $file = Join-Path $tmp 'GlobalBasicSettings_13.xml'
+      $sample = "<roblox version=`"4`">`r`n`t<Item class=`"UserGameSettings`" referent=`"RBX1`">`r`n`t`t<Properties>`r`n" +
+        "`t`t`t<int name=`"GraphicsQualityLevel`">21</int>`r`n`t`t`t<bool name=`"Fullscreen`">false</bool>`r`n" +
+        "`t`t`t<float name=`"MouseSensitivity`">0.2</float>`r`n`t`t</Properties>`r`n`t</Item>`r`n</roblox>`r`n"
+      [IO.File]::WriteAllText($file, $sample, (New-Object Text.UTF8Encoding $false))
+      $doc = New-Object Xml.XmlDocument
+      $doc.PreserveWhitespace = $true
+      $doc.Load($file)
+      $first = Set-RobloxSettingsXml $doc
+      Save-RobloxSettingsXml $doc $file
+      $doc2 = New-Object Xml.XmlDocument
+      $doc2.Load($file)
+      $bytes = [IO.File]::ReadAllBytes($file)
+      $text = [IO.File]::ReadAllText($file)
+      ($first -eq $Script:RobloxSettings.Count) -and (@(Get-RobloxSettingsDifferences $doc2).Count -eq 0) -and
+        ((Set-RobloxSettingsXml $doc2) -eq 0) -and $text.Contains('<float name="MouseSensitivity">0.2</float>') -and
+        $text.Contains('<float name="HapticStrength">0</float>') -and -not ($bytes[0] -eq 0xEF) -and $text.StartsWith('<roblox')
+    }
+
+    Add-Check 'Roblox settings match what Natro checks (lowest graphics 3, never automatic 0)' {
+      $wanted = @{}
+      foreach ($s in $Script:RobloxSettings) { $wanted[$s[1]] = $s[2] }
+      $wanted.GraphicsQualityLevel -eq '3' -and $wanted.PreferredTextSize -eq '1' -and $wanted.ControlMode -eq '1' -and
+        $wanted.ComputerCameraMovementMode -ne '2' -and $wanted.ComputerMovementMode -ne '2' -and $wanted.CameraYInverted -eq 'false' -and
+        $wanted.OnScreenProfilerEnabled -eq 'false' -and $wanted.Fullscreen -eq 'true' -and $wanted.HapticStrength -eq '0'
+    }
+
     Add-Check 'git is installed' { [bool](Get-Command git -ErrorAction SilentlyContinue) }
   } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

@@ -33,6 +33,9 @@ Versioning[^semver].
 - *Ouvrir Roblox*: opens the Roblox app in an account's session to sign in;
   the preparation does it after installing Roblox. It also opens the
   roblox.com login page in Edge, which Natro's browser fallback needs.
+- Roblox settings in each macro account: what Natro checks, plus
+  fullscreen on, haptics off and graphics manual at the lowest level;
+  applied before every Natro start, with a button and a column.
 - Firewall rules for each macro folder's AutoHotkey (inbound, TCP and UDP,
   private networks), so Windows' prompt no longer stops the macro.
 - Edge policies for macro accounts only: no first-run questions, no

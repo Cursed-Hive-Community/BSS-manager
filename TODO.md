@@ -65,6 +65,9 @@ Parsed and loaded, but nobody has run these yet:
       roblox.com without asking, in a macro account
 - [ ] Natro's browser fallback (every fifth reconnect attempt) joins the
       private server once the account is signed in on roblox.com
+- [ ] Roblox settings written in a macro account and kept after Natro
+      reopens Roblox (tested on a copy of the owner's real file only: 6
+      values changed, Natro's own checks find nothing left)
 - [ ] 1920x1080 sessions on this PC's screen (window larger than the
       screen?)
 - [ ] one-click start opens the sessions without a password prompt

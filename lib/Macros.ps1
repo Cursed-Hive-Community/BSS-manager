@@ -197,6 +197,9 @@ function Start-Natro {
   if ($missing) { Write-Log "$($Account.Roblox) ($($Account.Name)) : Natro non démarré, $missing." WARN; return $false }
   $name = Get-NatroTaskName $Account
   if (-not (Get-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name -ErrorAction SilentlyContinue)) { Sync-NatroTask $Cfg $Account }
+  # Natro is not running here, so a Roblox left open may be closed to put
+  # the settings Natro needs in place; Natro opens it again itself.
+  try { [void](Set-AccountRobloxSettings $Account -CloseRoblox) } catch { Write-Log "$($Account.Name) : réglages Roblox non appliqués, $($_.Exception.Message)" WARN }
   Start-ScheduledTask -TaskPath $Script:Bss.TaskPath -TaskName $name
   return $true
 }

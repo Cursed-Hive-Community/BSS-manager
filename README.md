@@ -117,6 +117,15 @@ policies in its own registry hive (no first-run questions, no sign-in or
 sync, Roblox opened from roblox.com without asking). The owner's own Edge
 is not touched.
 
+Roblox's own settings are set in each macro account's
+`GlobalBasicSettings_*.xml`: what Natro checks (graphics manual and lowest,
+smallest text, Shift Lock on, classic camera, keyboard movement, no
+inverted camera or profiler) plus fullscreen on and haptics off. Roblox
+rewrites that file when it exits, so it is written while Roblox is closed:
+before every Natro start (closing a Roblox left open, which Natro reopens)
+and before a session opens. *Réglages Roblox* applies it on demand and the
+*Réglages Roblox* column shows whether an account matches.
+
 The Roblox account signed in is read from
 `%LOCALAPPDATA%\Roblox\LocalStorage\appStorage.json` in each profile. An
 account only runs when the signed-in account matches its Roblox account
