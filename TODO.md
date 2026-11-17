@@ -68,6 +68,13 @@ What is proven, by which kind of evidence, and what is not.
 - [x] a brand-new account end to end (PlayerAlt3, 13:04-13:08): installer
       waited for to its end (52 s), Roblox opened and shown, macro started
       by the supervisor after the sign-in; three macros running together
+- [x] macro folder rights applied by *Install / repair* on the real macro
+      folder (2026-11-17, 16:37:01-16:37:14): root writable by
+      administrators only (the owner inside folders), each
+      `Natro_Macro_*` writable by its active account only (Roblox1,
+      inactive, left out), `tools\` and `.git` administrators only; the
+      four macros kept running, and PlayerAlt3, GuidingALT1 and Roblox2
+      wrote `tools\OCR_debug` within 30 s
 
 # Loads, never driven
 
@@ -98,9 +105,9 @@ Parsed and loaded, but nobody has run these yet:
 - [ ] local account in real use: Natro started in the owner's session by
       its task, supervised, stopped without logging the owner off, and
       the owner's Roblox closed and updated in a Roblox window
-- [ ] macro folder rights applied by *Install / repair* on the real macro
-      folder, with every macro still running and saving its settings
-      (self-tested on a temporary folder only)
+- [ ] Natro saving its settings (`settings\`) after the folder rights
+      changed, and PlayerAlt2's macro writing at all (its session had no
+      Roblox before the change)
 - [ ] Raspberry Pi watchdog and smart power strip (not built)
 - [ ] Roblox settings written in a macro account and kept after Natro
       reopens Roblox (tested on a copy of the owner's real file only: 6
